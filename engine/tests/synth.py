@@ -245,6 +245,44 @@ def build_tree_video(path: Path, seconds: float = 20.0, fps: int = 10) -> Path:
     return path
 
 
+def build_from_real(path: Path, src: Path, seconds: float = 20.0, scale: float = 1.0,
+                    canvas: tuple[int, int] | None = None, gray: bool = False, dark: float = 1.0) -> Path:
+    """Gerçek bir videodan türetilmiş test kaydı.
+    scale + canvas: görüntü küçültülüp büyük bir tuvalin köşesine konur (geniş açılı kamerada uzaktaki kişiler);
+    gray: siyah-beyaz (gece/IR) kayıt; dark: parlaklık çarpanı (<1 karanlık)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with av.open(str(src)) as ic, av.open(str(path), "w", format="mp4") as out:
+        vs = ic.streams.video[0]
+        fps = float(vs.average_rate or 10)
+        st = None
+        for fr in ic.decode(vs):
+            t = float(fr.time or 0)
+            if t > seconds:
+                break
+            img = fr.to_ndarray(format="bgr24")
+            if scale != 1.0:
+                img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            if canvas:
+                cw, chh = canvas
+                bg = np.full((chh, cw, 3), (95, 105, 100), np.uint8)
+                y0 = chh - img.shape[0] - chh // 10
+                bg[y0:y0 + img.shape[0], cw // 8:cw // 8 + img.shape[1]] = img
+                img = bg
+            if gray:
+                img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+            if dark != 1.0:
+                img = cv2.convertScaleAbs(img, alpha=dark)
+            if st is None:
+                st = out.add_stream("libx264", rate=Fraction(fps).limit_denominator(1000))
+                st.width, st.height, st.pix_fmt = img.shape[1] // 2 * 2, img.shape[0] // 2 * 2, "yuv420p"
+                st.options = {"bf": "0", "crf": "20"}
+            for pkt in st.encode(av.VideoFrame.from_ndarray(img[:st.height, :st.width], format="bgr24")):
+                out.mux(pkt)
+        for pkt in st.encode(None):
+            out.mux(pkt)
+    return path
+
+
 def build_osd_video(path: Path, osd_offset: float = 222.0, gap_at: float | None = 10.0,
                     gap_s: float = 600.0, seconds: float = 20.0) -> Scene:
     sc = Scene(seconds=seconds, osd_offset=osd_offset, gap_at=gap_at, gap_s=gap_s)

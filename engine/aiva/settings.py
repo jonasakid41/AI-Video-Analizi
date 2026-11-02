@@ -53,6 +53,7 @@ DEFAULTS: dict[str, Any] = {
         "budget_per_query_usd": 0.50,
         "send_context_frame": True,
         "timeout_s": 120,
+        "cli_paths": {},  # araç → exe yolu (boşsa PATH ve bilinen kurulum yerleri taranır)
     },
     "analysis": {
         "auto_analyze": True,
@@ -126,6 +127,11 @@ def public(s: dict[str, Any] | None = None) -> dict[str, Any]:
     s.pop("secrets", None)
     s["api_key_set"] = bool(key)
     s["api_key_masked"] = vault.mask(key)
+    from .ai import client
+    verifier = s["ai"]["roles"].get("verifier") or ""
+    s["ai_source"] = "cli" if verifier.startswith("cli:") else "api"
+    s["ai_ready"] = client.configured(verifier) if verifier.startswith("cli:") else bool(key) or (
+        "openrouter.ai" not in s["ai"]["base_url"])
     s["profiles"] = {k: {"label": PROFILE_LABELS[k], "roles": v} for k, v in PROFILES.items()}
     return s
 

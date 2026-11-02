@@ -1,5 +1,5 @@
 import { AlertTriangle, FolderOpen, Maximize2, SquareDashedMousePointer, Wand2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, fileUrl, frameUrl, openFolder } from "../../lib/api";
 import { useDebounced, useJob, useMapping } from "../../lib/hooks";
 import { fmtClock, fmtMedia } from "../../lib/time";
@@ -17,6 +17,20 @@ const OPS: Op[] = [
   { id: "gama", label: "Gama", hint: "Karanlık görüntüyü aydınlatır (>1).", param: { key: "deger", label: "Değer", min: 0.4, max: 3, step: 0.1, def: 1.4 } },
   { id: "keskinlestir", label: "Keskinleştirme", hint: "Kenarları belirginleştirir.", param: { key: "miktar", label: "Miktar", min: 0.2, max: 2.5, step: 0.1, def: 1 } },
   { id: "gri", label: "Gri ton", hint: "Renk gürültüsünü kaldırır; plaka/yazı okumayı kolaylaştırabilir." },
+];
+
+type Preset = { id: string; label: string; hint: string; enabled: Record<string, boolean>; params: Record<string, number> };
+
+const PRESETS: Preset[] = [
+  { id: "genel", label: "Genel", hint: "Yerel kontrast ve keskinleştirme.", enabled: { clahe: true, keskinlestir: true }, params: {} },
+  {
+    id: "gece", label: "Gece / IR", hint: "Siyah-beyaz ve karanlık kayıtlar: gürültü azaltma, güçlü yerel kontrast, aydınlatma; renk gürültüsü kaldırılır.",
+    enabled: { gurultu: true, clahe: true, gama: true, keskinlestir: true, gri: true }, params: { gurultu: 9, clahe: 3.5, gama: 1.3, keskinlestir: 0.8 },
+  },
+  {
+    id: "plaka", label: "Plaka / yazı", hint: "Durağan araç plakası ya da yazı: çok kareli birleştirme, kontrast, gri ton.",
+    enabled: { coklu_kare: true, clahe: true, keskinlestir: true, gri: true }, params: { coklu_kare: 7, clahe: 2, keskinlestir: 1.2 },
+  },
 ];
 
 const SCALE = [
@@ -38,7 +52,20 @@ export default function EnhancePanel({ ev }: { caseId: number; ev?: Evidence }) 
   const [scale, setScale] = useState("buyut:2");
   const [jobId, setJobId] = useState<number | null>(null);
   const [big, setBig] = useState<string | null>(null);
+  const [preset, setPreset] = useState("genel");
   const job = useJob(jobId);
+  const pic = ev?.analysis_info?.analiz?.goruntu;
+  const night = !!pic && (pic.renksiz_oran >= 0.6 || pic.dusuk_isik_oran >= 0.6);
+
+  const applyPreset = (p: Preset) => {
+    setPreset(p.id);
+    setEnabled(p.enabled);
+    setParams(p.params);
+  };
+  // Siyah-beyaz/karanlık kayıtta gece ayarı önerilir (video değişince bir kez)
+  useEffect(() => {
+    applyPreset(PRESETS.find((p) => p.id === (night ? "gece" : "genel"))!);
+  }, [ev?.id, night]);
 
   if (!ev || ev.status !== "hazir") return <Empty title="Bir video seçin" />;
 
@@ -89,6 +116,22 @@ export default function EnhancePanel({ ev }: { caseId: number; ev?: Evidence }) 
           </div>
         </div>
       </div>
+
+      <Section title="Hazır ayar">
+        <div className="grid grid-cols-3 gap-1">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              title={p.hint}
+              onClick={() => applyPreset(p)}
+              className={`rounded-md border px-2 py-1.5 text-[12px] cursor-pointer ${preset === p.id ? "border-accent/60 bg-accent/15 text-accent" : "border-line text-muted hover:text-text"}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {night && <div className="text-[11.5px] leading-snug text-muted">Bu kayıt siyah-beyaz ya da karanlık olduğu için "Gece / IR" ayarı önerildi.</div>}
+      </Section>
 
       <Section title="Klasik işlemler (tekrarlanabilir)">
         <div className="space-y-1">

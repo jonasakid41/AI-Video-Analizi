@@ -13,7 +13,7 @@ const ev = {
   strategy: { name: "Doğrudan açma", denemeler: [{ strateji: "Doğrudan açma", basarili: true, cozulen_kare: 30, hata: "" }, { strateji: "Hata toleranslı", basarili: false, cozulen_kare: 0, hata: "x" }] },
   analysis_info: {
     donusturme: { container: "matroska", gaps: [], dropped: 0, keyframe_interval: 2, proxy: { mode: "kodlama", encoder: "h264_nvenc", encoder_label: "NVIDIA NVENC" }, sprite: { times: [1, 2], tile_w: 160, tile_h: 90, cols: 10, count: 2 } },
-    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, hareket_ozeti: { cevre: 4, nesne: 2 }, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
+    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, hareket_ozeti: { cevre: 4, nesne: 2 }, goruntu: { renksiz_oran: 1, dusuk_isik_oran: 0.8, iyilestirilen_kare: 40, yakinlastirma_tespiti: 12 }, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
   },
   time: { kamera_saati_var: true, kaynak: "osd", duzeltme_farki_sn: -222, gunluk_kayma_sn: null, parca_sayisi: 2, bosluklar: [{ t: 18, jump: 600 }] },
   camera_start: "2026-10-28T14:33:42", real_start: "2026-10-28T14:30:00",
@@ -26,7 +26,7 @@ const settings = {
   notice_accepted: true,
   ai: { base_url: "https://openrouter.ai/api/v1", profile: "dengeli", roles: { planner: "a/b", verifier: "c/d", video: "e/f" }, data_collection_deny: true, zdr: false, max_candidates: 40, batch_size: 8, budget_per_query_usd: 0.5, send_context_frame: true, timeout_s: 120 },
   analysis: { auto_analyze: true, sample_fps: 2, scan_fps: 1, detector: "yolox_s", min_conf: 0.35, faces: true, plates: true, clip: true, motion_threshold: 0.004, device: "auto" },
-  time: { tz: "Europe/Istanbul" }, api_key_set: true, api_key_masked: "sk-or-…1234",
+  time: { tz: "Europe/Istanbul" }, api_key_set: true, api_key_masked: "sk-or-…1234", ai_ready: true, ai_source: "api",
   profiles: { ucretsiz: { label: "Ücretsiz", roles: {} }, dengeli: { label: "Dengeli", roles: {} } },
 };
 
@@ -59,6 +59,8 @@ const fixtures: [RegExp, unknown][] = [
   [/^\/api\/system$/, { version: "0.1.0", data_dir: "C:\\data", models_dir: "C:\\models", frozen: true, encoders: [{ name: "h264_nvenc", label: "NVIDIA NVENC", ok: true }], encoder: "h264_nvenc", inference: { onnxruntime: "1.24", providers: ["DmlExecutionProvider"], gpu: true, label: "GPU (DirectML)" }, models: [{ key: "yolox_s", label: "Nesne tespiti", license: "Apache-2.0", ok: true, size_mb: 36 }] }],
   [/^\/api\/models$/, { models: [{ id: "c/d", name: "Model D", description: "", context: 1000, input: ["text", "image"], image: true, video: false, structured: true, free: false, price_in_m: 0.3, price_out_m: 1.2 }, { id: "e/f", name: "Video F", description: "", context: 1000, input: ["video", "image"], image: true, video: true, structured: true, free: true, price_in_m: 0, price_out_m: 0 }], total: 2, image_count: 2, video_count: 1, free_vision: 1, fetched_at: "2026-11-02 10:00" }],
   [/^\/api\/power$/, { on_battery: true, percent: 64 }],
+  [/^\/api\/ai\/cli$/, [{ tool: "claude", label: "Claude Code", path: "C:\\Users\\x\\.local\\bin\\claude.exe", found: true, version: "2.1.282 (Claude Code)", experimental: false, login: "claude", models: [] },
+    { tool: "codex", label: "OpenAI Codex CLI", path: null, found: false, version: null, experimental: true, login: "codex login", models: [] }]],
   [/^\/api\/update$/, { current: "0.1.2", can_apply: true, reason: null, check_on_start: false, last_check: "2026-11-02T10:00:00", staged: null, result: null,
     latest: { current: "0.1.2", latest: "0.2.0", newer: true, title: "AI Video Analizi v0.2.0", notes: "## Yenilikler\n**Hızlı** arama", published_at: "2026-11-02T10:00:00Z", page: null, checked_at: "", asset: { name: "AIVideoAnalizi-0.2.0-win64.zip", size: 600 * 2 ** 20, url: "u", sha256: "ab" } } }],
   // Eski sürümün kaydettiği, şemaya uymayan model planı (classes/colors yok)
@@ -134,6 +136,7 @@ describe("arayüz duman testi", () => {
     expect((await screen.findAllByText("34 ABC 123")).length).toBeGreaterThan(0);
     go("İyileştir");
     expect(await screen.findByText("Çok kareli birleştirme")).toBeTruthy();
+    expect(screen.getByText(/"Gece \/ IR" ayarı önerildi/)).toBeTruthy(); // siyah-beyaz kayıt
     go("Saat");
     expect(await screen.findByText("1 · Kamera saatini oku")).toBeTruthy();
     expect(screen.getByText(/−3 dk 42 sn/)).toBeTruthy();
@@ -141,12 +144,16 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText("Denenen açma yöntemleri")).toBeTruthy();
     expect(screen.getByText(/NVIDIA NVENC/)).toBeTruthy();
     expect(screen.getByText(/ağaç\/bitki\/gölge .*\(önemsiz\)/)).toBeTruthy();
+    expect(screen.getByText(/siyah-beyaz \(gece\/IR\).*yakınlaştırmayla 12 ek tespit/)).toBeTruthy();
   });
 
   it("ayarlar penceresi: tüm sekmeler", async () => {
     const { default: SettingsDialog } = await import("./components/SettingsDialog");
     wrap(<SettingsDialog open onClose={() => {}} info={{ ready: true, port: 1, token: "x", data_dir: "C:\\data", portable: true, error: null }} />);
     expect(await screen.findByText("OpenRouter API anahtarı")).toBeTruthy();
+    expect(await screen.findByText("Claude Code")).toBeTruthy(); // bilgisayardaki CLI aracı
+    expect(screen.getByRole("button", { name: "Kullan" })).toBeTruthy();
+    expect(screen.getByText(/Kurulu değil.*codex login/)).toBeTruthy();
     expect(await screen.findByText(/2 model/)).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Yerel analiz" }));
     expect(await screen.findByText("Plaka okuma")).toBeTruthy();

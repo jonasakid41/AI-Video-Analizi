@@ -188,7 +188,7 @@ def sanitize(p: Any, question: str, local: dict | None = None) -> dict[str, Any]
 
 def plan(question: str, model: str | None, case_id: int | None, query_id: int | None) -> tuple[dict, dict]:
     """(plan, kullanım) döner. Model hatasında yerel plana düşer."""
-    if model and client.configured():
+    if model and client.configured(model):
         try:
             res = client.chat(model, [{"role": "system", "content": prompts.PLANNER_SYSTEM},
                                       {"role": "user", "content": question}],

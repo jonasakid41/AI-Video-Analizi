@@ -35,9 +35,27 @@ class Candidate:
     color_text: str = ""
     plate: str | None = None
     reasons: list[str] = field(default_factory=list)
+    gray: bool = False            # siyah-beyaz (gece/IR) kare: renk doğrulanamaz
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+GRAY_RATIO = 0.6  # bu orandan fazlası siyah-beyaz olan kayıt "renksiz" sayılır
+
+
+def picture(ev: dict) -> dict:
+    """Analizin görüntü özeti: renksiz_oran, dusuk_isik_oran, …"""
+    return ((loads(ev.get("analysis_info"), {}) or {}).get("analiz") or {}).get("goruntu") or {}
+
+
+def _widen(box: list[float], min_side: float = 0.14) -> list[float]:
+    """Hareket lekesinin kutusu dar olur; doğrulamada çevresiyle görünsün diye genişletilir."""
+    x, y, w, h = box
+    w2, h2 = min(1.0, max(w * 2.5, min_side)), min(1.0, max(h * 2.5, min_side))
+    x0 = min(max(0.0, x + w / 2 - w2 / 2), 1.0 - w2)
+    y0 = min(max(0.0, y + h / 2 - h2 / 2), 1.0 - h2)
+    return [round(x0, 4), round(y0, 4), round(w2, 4), round(h2, 4)]
 
 
 def _parse_hm(s: str | None) -> time | None:
@@ -88,6 +106,9 @@ def _best_point(path: list) -> tuple[float, list[float]] | None:
 def _color_score(cols: dict, wanted: list[dict]) -> tuple[float, list[str]]:
     if not wanted:
         return 0.0, []
+    if cols.get("renksiz"):
+        # Gece/IR karesinde renk görünmez: aday elenmez, renkli eşleşmelerin biraz altında sıralanır
+        return 0.4, ["renk doğrulanamaz (siyah-beyaz)"]
     score, why = 0.0, []
     for w in wanted:
         keys = [w["target"]] if w["target"] != "genel" else ["ust", "alt", "govde", "genel"]
@@ -117,13 +138,23 @@ def find(case_id: int, plan: dict, evidence_ids: list[int] | None = None, roi_id
     roi = results.roi_get(roi_id) if roi_id else None
     if roi:
         evs = [e for e in evs if e["id"] == roi["evidence_id"]]
-    qvec = None
+    qvec = qvec_plain = None
+    gray_ids = {e["id"] for e in evs if picture(e).get("renksiz_oran", 0) >= GRAY_RATIO}
     if plan.get("visual_query_en") and clip.available():
         qvec = clip.embed_texts([plan["visual_query_en"]])[0]
+        if plan.get("colors") and gray_ids:
+            # Siyah-beyaz kayıtta "kırmızı mont" gibi renkli tarif görsel benzerliği bozar
+            from .planner import _visual_en
+            qvec_plain = clip.embed_texts([_visual_en({**plan, "colors": []})])[0]
     classes = set(plan.get("classes") or [])
     cands: list[Candidate] = []
+    n_tracks = 0
     for ev in evs:
         m = evidence.get_mapping(ev["id"])
+        ev_gray = ev["id"] in gray_ids
+        if ev_gray and plan.get("colors"):
+            notes.append(f"{ev['original_name']}: kayıt siyah-beyaz (gece/kızılötesi); renk koşulu uygulanamadı, "
+                         "adaylar renge bakılmadan sıralandı")
         windows, warn = media_windows(m, ev["duration"] or 0.0, plan.get("time_from"), plan.get("time_to"))
         if warn:
             notes.append(f"{ev['original_name']}: {warn}")
@@ -173,22 +204,30 @@ def find(case_id: int, plan: dict, evidence_ids: list[int] | None = None, roi_id
                 if inside_pts:
                     t_best, box = _best_point(inside_pts)  # type: ignore[misc]
             r = m.to_real(t_best)
+            n_tracks += 1
             cands.append(Candidate(
                 id=f"i{tr['id']}", kind="iz", evidence_id=ev["id"], t=t_best, box=box, score=round(score, 4),
                 track_id=tr["id"], t0=tr["t0"], t1=tr["t1"], cls=tr["cls"], cls_tr=CLASSES_TR.get(tr["cls"], tr["cls"]),
                 thumb=tr["thumb"], real_t=r.isoformat(timespec="seconds") if r else None, camera=ev["camera"],
-                video=name, color_text=results.color_text(tr["cls"], cols), plate=tr["plate"], reasons=reasons))
+                video=name, color_text=results.color_text(tr["cls"], cols), plate=tr["plate"], reasons=reasons,
+                gray=bool(cols.get("renksiz")) or ev_gray))
+        if not plan.get("plate") and not roi:
+            # Dedektörün tanımadığı hareket (uzak/karanlık kişi olabilir): hareket bölgesi yakından gösterilir
+            cands += _motion_candidates(ev, m, windows, cands, ev_gray)
         # Sahne düzeyinde görsel benzerlik her zaman aday havuzuna eklenir: yerel dedektörün
         # tanımadığı şeyler (ağaçtaki hareket, yangın, düşmüş nesne…) de modele ulaşabilsin
         if qvec is not None and not plan.get("plate") and not roi:
             mine = [c for c in cands if c.evidence_id == ev["id"]]
             k = max(4, limit // 3) if mine else limit
-            for fc in _frame_candidates(ev, m, windows, qvec, k):
+            qv = qvec_plain if ev_gray and qvec_plain is not None else qvec
+            for fc in _frame_candidates(ev, m, windows, qv, k):
                 if not any(abs(fc.t - c.t) < 1.5 for c in mine):
+                    fc.gray = ev_gray
                     cands.append(fc)
-    if not cands and classes:
+    if not n_tracks and classes:
         cls_tr = ", ".join(CLASSES_TR.get(c, c) for c in classes)
-        notes.append(f"Yerel analiz bu aralıkta {cls_tr} bulamadı")
+        extra = "; tanımlanamayan hareket anları ve görsel olarak benzeyen kareler modele gösterildi" if cands else ""
+        notes.append(f"Yerel analiz bu aralıkta {cls_tr} tespit edemedi{extra}")
     cands.sort(key=lambda c: -c.score)
     return cands[:limit], notes
 
@@ -213,11 +252,31 @@ def expand(case_id: int, plan: dict, evidence_ids: list[int] | None, roi_id: int
     for ev, m, windows in per:
         share = sum(b - a for a, b in windows) / total
         k = max(2, int(round(n * share)))
+        gray = picture(ev).get("renksiz_oran", 0) >= GRAY_RATIO
         for c in _uniform_frames(ev, m, windows, k, exact=True):
             if not any(x.evidence_id == c.evidence_id and abs(x.t - c.t) < 2.0 for x in exclude):
                 c.reasons = ["genişletilmiş arama"]
+                c.gray = gray
                 out.append(c)
     return out[:n]
+
+
+def _motion_candidates(ev: dict, m: TimeMapping, windows, existing: list[Candidate], gray: bool,
+                       limit: int = 8) -> list[Candidate]:
+    evs = [e for e in results.events(ev["id"], m) if e["kind"] == "belirsiz" and _overlaps(e["t0"], e["t1"], windows)]
+    evs.sort(key=lambda e: -(e["t1"] - e["t0"]))
+    out: list[Candidate] = []
+    for e in evs[:limit]:
+        t = e["t_peak"] if e["t_peak"] is not None else (e["t0"] + e["t1"]) / 2
+        if any(c.evidence_id == ev["id"] and abs(c.t - t) < 1.5 for c in existing + out):
+            continue
+        r = m.to_real(t)
+        out.append(Candidate(
+            id=f"h{ev['id']}_{int(t * 1000)}", kind="kare", evidence_id=ev["id"], t=t,
+            box=_widen(e["box"]) if e["box"] else None, score=0.35, t0=e["t0"], t1=e["t1"],
+            cls_tr="tanımlanamayan hareket", real_t=r.isoformat(timespec="seconds") if r else None,
+            camera=ev["camera"], video=ev["original_name"], reasons=["dedektörün tanımadığı hareket"], gray=gray))
+    return out
 
 
 def _frame_candidates(ev: dict, m: TimeMapping, windows, qvec: np.ndarray, limit: int) -> list[Candidate]:

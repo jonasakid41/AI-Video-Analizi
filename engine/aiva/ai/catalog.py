@@ -57,6 +57,22 @@ def normalize(m: dict) -> dict:
 
 
 def fetch(refresh: bool = False) -> dict:
+    """Uzak katalog + bilgisayarda kurulu CLI araçlarının modelleri (en başta)."""
+    from . import cli
+    local = cli.model_entries()
+    try:
+        data = _remote(refresh)
+    except RuntimeError as e:
+        if not local:
+            raise
+        data = {"models": [], "total": 0, "image_count": 0, "video_count": 0, "free_vision": 0,
+                "fetched_at": "", "warning": str(e)}
+    models = local + [m for m in data["models"] if not m["id"].startswith("cli:")]
+    return {**data, "models": models, "total": len(models), "image_count": data["image_count"] + len(local),
+            "free_vision": data["free_vision"] + len(local), "cli_count": len(local)}
+
+
+def _remote(refresh: bool = False) -> dict:
     s = settings.load()
     base = s["ai"]["base_url"].rstrip("/")
     with _lock:
@@ -105,8 +121,11 @@ def fetch(refresh: bool = False) -> dict:
 
 
 def get(model_id: str) -> dict | None:
+    if model_id.startswith("cli:"):
+        from . import cli
+        return cli.info(model_id)
     try:
-        data = fetch()
+        data = _remote()
     except RuntimeError:
         return None
     return next((m for m in data["models"] if m["id"] == model_id), None)

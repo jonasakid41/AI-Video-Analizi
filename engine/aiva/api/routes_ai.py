@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import enhance, evaluate, evidence, export, jobs, query
-from ..ai import catalog
+from .. import enhance, evaluate, evidence, export, jobs, query, settings
+from ..ai import catalog, cli
 
 router = APIRouter(prefix="/api")
 
@@ -17,6 +17,32 @@ def models(refresh: bool = False) -> dict:
         return catalog.fetch(refresh)
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
+
+
+# --- bilgisayardaki CLI araçları (abonelik) --------------------------------------------
+
+class CliIn(BaseModel):
+    tool: str = Field(pattern="^(claude|codex|gemini)$")
+    model: str = Field(default="", max_length=80, pattern=r"^[\w.\-]*$")
+
+
+@router.get("/ai/cli")
+def cli_status() -> list[dict]:
+    return cli.status()
+
+
+@router.post("/ai/cli/test")
+def cli_test(body: CliIn) -> dict:
+    return cli.test(body.tool, body.model)
+
+
+@router.post("/ai/cli/use")
+def cli_use(body: CliIn) -> dict:
+    """Tüm görevleri seçilen CLI aracına geçirir (soru çözümleme, kare doğrulama, video)."""
+    if not cli.available(body.tool):
+        raise HTTPException(400, f"{cli.TOOLS[body.tool]['label']} bu bilgisayarda bulunamadı")
+    roles = {k: cli.model_id(body.tool, v) for k, v in cli.TOOLS[body.tool]["roles"].items()}
+    return settings.public(settings.update({"ai": {"roles": roles, "profile": "cli"}}))
 
 
 # --- sorular -------------------------------------------------------------------------

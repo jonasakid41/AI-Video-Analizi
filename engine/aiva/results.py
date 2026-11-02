@@ -22,16 +22,17 @@ def _iso(m: TimeMapping, t: float) -> str | None:
 def color_text(cls: str, cols: dict) -> str:
     def names(lst):
         return "/".join(c for c, _ in lst[:2]) if lst else ""
+    suffix = " (siyah-beyaz kayıt)" if cols.get("renksiz") else ""
     if cls == "person":
         parts = []
         if names(cols.get("ust", [])):
             parts.append(f"üst: {names(cols['ust'])}")
         if names(cols.get("alt", [])):
             parts.append(f"alt: {names(cols['alt'])}")
-        return ", ".join(parts)
+        return ", ".join(parts) + suffix if parts else suffix.strip(" ()")
     if cols.get("govde"):
-        return names(cols["govde"])
-    return names(cols.get("genel", []))
+        return names(cols["govde"]) + suffix
+    return names(cols.get("genel", [])) + suffix
 
 
 def track_public(r: dict, m: TimeMapping | None = None) -> dict:
@@ -108,7 +109,8 @@ def events(evidence_id: int, m: TimeMapping | None = None) -> list[dict]:
         info = loads(r["info"], {})
         out.append({"t0": r["t0"], "t1": r["t1"], "real_t0": _iso(m, r["t0"]), "real_t1": _iso(m, r["t1"]),
                     "kind": info.get("tur"), "label": info.get("etiket", ""), "detail": info.get("ayrinti", ""),
-                    "ignorable": bool(info.get("onemsiz")), "tracks": info.get("izler", [])})
+                    "ignorable": bool(info.get("onemsiz")), "tracks": info.get("izler", []),
+                    "box": info.get("kutu"), "t_peak": info.get("t_tepe")})
     return out
 
 

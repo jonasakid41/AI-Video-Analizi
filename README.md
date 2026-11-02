@@ -16,6 +16,11 @@ Kamera (CCTV/DVR) kayıtlarını bilgisayarda inceleyen, ücretsiz ve açık kay
   - *"14:00–15:00 arası kırmızı montlu biri geçti mi?"* gibi sorular sorulabilir.
   - **Hızlı** mod tamamen yereldir.
   - **Doğrulamalı** ve **Derin** modlar, OpenRouter üzerinden kullanıcının seçtiği görsel/video modelini kullanır.
+  - **Abonelikle kullanım:** OpenRouter yerine bilgisayarda kurulu Claude Code, OpenAI Codex CLI ya da Gemini CLI seçilebilir. Bu durumda ücreti kullanıcının aboneliği karşılar (Codex ve Gemini deneysel).
+- **Zor kayıtlar:**
+  - Geniş açılı kameralarda uzaktaki küçük kişiler, hareket bölgesi yakınlaştırılarak yeniden aranır.
+  - Gece/IR (siyah-beyaz) kayıtlarda renk yerine ton kaydedilir ve renk koşulu adayları elemez.
+  - Karanlık karelerde tespitten önce kontrast artırılır.
 - **Model karşılaştırma:** Soru sonuçlarını "doğru / yanlış" diye işaretleyip aynı adayları birden çok modele doğrulatabilirsiniz. Her model için isabet, duyarlılık, maliyet ve süre tablosu çıkar.
 - **Ortak zaman çizelgesi:** Tüm kameraların kayıtları gerçek saat ekseninde yan yana gösterilir. Ardışık kesitler ve kayıt boşlukları görünür; tıklayınca ilgili ana gidilir.
 - **İyileştirme:** Klasik filtreler ve Real-ESRGAN ile AI büyütme vardır. AI ile büyütülen çıktılar filigranla işaretlenir.

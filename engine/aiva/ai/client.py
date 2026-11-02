@@ -82,14 +82,36 @@ def parse_json(text: str) -> Any:
         raise
 
 
-def configured() -> bool:
+def configured(model: str | None = None) -> bool:
+    """Model çağrılabilir mi? CLI modelleri (cli:<araç>:…) için araç kurulu olmalı, diğerleri için anahtar."""
+    if model and model.startswith("cli:"):
+        from . import cli
+        return cli.available(cli.parse_id(model)[0])
     s = settings.load()
     return bool(settings.get_api_key(s)) or "openrouter.ai" not in s["ai"]["base_url"]
+
+
+def _cli_chat(model: str, messages: list[dict], schema: dict | None, role: str, case_id: int | None,
+              query_id: int | None) -> dict:
+    from . import cli
+    timeout = max(240.0, float(settings.load()["ai"].get("timeout_s", 120)))
+    row = {"case_id": case_id, "query_id": query_id, "role": role, "model": model, "cost": 0.0,
+           "request": dumps({"messages": _redact(messages), "schema": bool(schema)}), "created_at": now_iso()}
+    try:
+        out = cli.chat(model, messages, schema, timeout)
+    except AIError as e:
+        db.insert("ai_calls", {**row, "response": str(e), "ok": 0})
+        raise
+    db.insert("ai_calls", {**row, "response": out["content"], "tokens_in": out["usage"]["in"],
+                           "tokens_out": out["usage"]["out"], "ok": 1})
+    return out
 
 
 def chat(model: str, messages: list[dict], schema: dict | None = None, *, role: str = "", case_id: int | None = None,
          query_id: int | None = None, max_tokens: int = 1500, temperature: float = 0.1,
          transport: httpx.BaseTransport | None = None) -> dict:
+    if model.startswith("cli:"):
+        return _cli_chat(model, messages, schema, role, case_id, query_id)
     s = settings.load()
     ai = s["ai"]
     base = ai["base_url"].rstrip("/")

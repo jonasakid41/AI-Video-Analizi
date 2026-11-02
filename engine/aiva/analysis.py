@@ -9,6 +9,7 @@ Tüm konumlar kare boyutuna göre 0–1 normalize, tüm dosya yolları data/ kla
 
 from __future__ import annotations
 
+import bisect
 import shutil
 import time
 import uuid
@@ -19,8 +20,8 @@ from pathlib import Path
 import numpy as np
 
 from . import db, events, evidence, history, jobs, paths, settings
-from .analyze import clip, colors, faces, motion, plates, runtime
-from .analyze.detector import CLASSES_TR, MOTOR_VEHICLES, Detector
+from .analyze import clip, colors, faces, lowlight, motion, plates, runtime
+from .analyze.detector import CLASSES_TR, MOTOR_VEHICLES, Det, Detector, _iou
 from .analyze.tracker import Tracker
 from .media import frames
 from .results import color_text
@@ -28,6 +29,9 @@ from .util import dumps, imwrite, loads, vec_to_blob
 
 FRAME_EMB_EVERY = 2.0
 SPARSE_FPS = 0.1
+PERSON_CONF = 0.28   # kişiler için tespit eşiği (genel eşikten düşük; tek karelik izler sonradan elenir)
+ZOOM_MAX = 2         # kare başına en fazla bu kadar hareket bölgesi büyütülerek yeniden taranır
+ENHANCE_LOW = True   # karanlık/düşük kontrastlı karelerde tespit öncesi CLAHE
 
 
 @dataclass
@@ -42,6 +46,7 @@ class TrackData:
     last_plate_t: float = -1e9
     plate_reads: list = field(default_factory=list)
     faces: int = 0
+    gray: bool = False    # en iyi kırpıntının alındığı kare siyah-beyaz mı
 
 
 def rel(p: Path) -> str:
@@ -98,6 +103,10 @@ def _motion_events(eid: int, msamples: list, threshold: float, scan_fps: float, 
         a, b = max(0.0, a - step / 2), b + step / 2
         summary[kind] += b - a
         info = {"tur": kind, "etiket": motion.KINDS[kind], "ayrinti": "", "onemsiz": kind in motion.IGNORABLE}
+        if kind in ("nesne", "belirsiz"):
+            t_peak, box = _event_box(msamples, kinds, kind, a, b)
+            if box:
+                info["t_tepe"], info["kutu"] = t_peak, box
         if kind == "nesne":
             inside = [tr for tr in tracks if tr["t1"] >= a and tr["t0"] <= b]
             if inside:
@@ -107,6 +116,40 @@ def _motion_events(eid: int, msamples: list, threshold: float, scan_fps: float, 
     with db.tx() as c:
         c.executemany("INSERT INTO segments (evidence_id, kind, t0, t1, info) VALUES (?, ?, ?, ?, ?)", out)
     return {k: round(v, 1) for k, v in summary.items()}
+
+
+def _zoom_detect(detector: Detector, img: np.ndarray, sample: motion.Sample | None, dets: list[Det],
+                 conf: float) -> list[Det]:
+    """Hareket var ama onu açıklayan tespit yok: hareket bölgesi kırpılıp büyütülerek yeniden aranır.
+    Dedektör kareyi 640 px'e küçülttüğü için geniş açılı kameralarda uzaktaki kişiler kayboluyordu."""
+    if sample is None or not sample.boxes:
+        return []
+    H, W = img.shape[:2]
+    extra: list[Det] = []
+    for bx, by, bw, bh in sample.boxes[:ZOOM_MAX]:
+        cx, cy = (bx + bw / 2) * W, (by + bh / 2) * H
+        if any(d.x1 - 0.3 * d.w <= cx <= d.x2 + 0.3 * d.w and d.y1 - 0.3 * d.h <= cy <= d.y2 + 0.3 * d.h
+               for d in dets + extra):
+            continue
+        cw, ch = min(W, max(W * 0.3, bw * W * 5)), min(H, max(H * 0.3, bh * H * 5))
+        if cw > W * 0.7:
+            continue  # bölge zaten büyük: tam kare taraması yeterli
+        x0 = int(max(0.0, min(W - cw, cx - cw / 2)))
+        y0 = int(max(0.0, min(H - ch, cy - ch / 2)))
+        for d in detector.detect(img[y0:y0 + int(ch), x0:x0 + int(cw)], conf, person_conf=PERSON_CONF):
+            d2 = Det(d.cls, d.conf, d.x1 + x0, d.y1 + y0, d.x2 + x0, d.y2 + y0)
+            if all(_iou(d2, o) < 0.4 for o in dets + extra):
+                extra.append(d2)
+    return extra
+
+
+def _event_box(samples: list[motion.Sample], kinds: list[str | None], kind: str, a: float, b: float):
+    """Olayın en belirgin anı ve hareket kutusu (doğrulamada o bölge yakından gösterilir)."""
+    inside = [s for s, k in zip(samples, kinds) if k == kind and a <= s.t <= b and s.boxes]
+    if not inside:
+        return None, None
+    peak = max(inside, key=lambda s: s.mlargest)
+    return round(peak.t, 3), [round(v, 4) for v in peak.boxes[0]]
 
 
 def _plan(segs: list[tuple[float, float]], duration: float, fps: float) -> list[tuple[float, float, float, str]]:
@@ -165,16 +208,29 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     info = loads(ev.get("analysis_info"), {})
     ki = (info.get("donusturme") or {}).get("keyframe_interval") or frames.keyframe_interval(path)
     use_keys = ki is not None and ki <= 2.5
-    meter = motion.MotionMeter()
+    mwidth = motion.meter_width(W)
+    meter = motion.MotionMeter(width=mwidth)
     msamples: list[motion.Sample] = []
     scan_fps = float(cfg["scan_fps"])
+    n_gray = n_low = 0
     for t, frame in frames.iter_frames(path, scan_fps, keyframes_only=use_keys, cancel=ctx.check):
-        small = frame.reformat(width=320, height=max(2, int(320 * H / W) // 2 * 2), format="bgr24").to_ndarray()
+        small = frame.reformat(width=mwidth, height=max(2, int(mwidth * H / W) // 2 * 2), format="bgr24").to_ndarray()
         msamples.append(meter.measure(small, t))
+        g, low, _flat = lowlight.frame_stats(small)
+        n_gray += g
+        n_low += low
         if duration:
             ctx.progress(0.02 + 0.18 * min(1.0, t / duration), "Hareket taraması")
-    samples = [(s.t, s.score) for s in msamples]
-    segs = motion.active_segments(samples, float(cfg["motion_threshold"]), duration=duration or None)
+    picture = {"renksiz_oran": round(n_gray / max(1, len(msamples)), 3),
+               "dusuk_isik_oran": round(n_low / max(1, len(msamples)), 3)}
+    segs = motion.active_segments(motion.segment_signal(msamples, float(cfg["motion_threshold"])),
+                                  float(cfg["motion_threshold"]), duration=duration or None)
+    ms_ts = [s.t for s in msamples]
+
+    def sample_near(t: float) -> motion.Sample | None:
+        i = bisect.bisect_left(ms_ts, t)
+        near = [msamples[j] for j in (i - 1, i) if 0 <= j < len(msamples) and abs(msamples[j].t - t) <= 0.75]
+        return min(near, key=lambda s: abs(s.t - t)) if near else None
     plan = _plan(segs, duration, float(cfg["sample_fps"]))
     with db.tx() as c:
         c.executemany("INSERT INTO segments (evidence_id, kind, t0, t1, info) VALUES (?, ?, ?, ?, ?)",
@@ -199,6 +255,8 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     planned = sum((b - a) * f for a, b, f, _k in plan) or 1.0
     done = 0.0
     n_frames = 0
+    n_zoom = 0
+    n_enhanced = 0
 
     def flush_embeddings() -> None:
         if not emb_imgs:
@@ -223,8 +281,19 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         for t, frame in frames.iter_frames(path, fps, t0=a, t1=b, cancel=ctx.check):
             img = frame.to_ndarray(format="bgr24")
             n_frames += 1
+            gray, dark, flat = lowlight.frame_stats(img)
+            low = ENHANCE_LOW and (dark or flat)
+            # Karanlık/düşük kontrastlı karede tespit, yüz ve plaka kontrastı artırılmış kopyada aranır;
+            # renkler ve kayıtlı kırpıntılar özgün kareden alınır
+            det_img = lowlight.enhance(img) if low else img
+            n_enhanced += low
+            conf = float(cfg["min_conf"])
             with jobs.gpu_lock:
-                dets = detector.detect(img, float(cfg["min_conf"]))
+                dets = detector.detect(det_img, conf, person_conf=min(conf, PERSON_CONF))
+                if kind == "aktif":
+                    extra = _zoom_detect(detector, det_img, sample_near(t), dets, conf)
+                    n_zoom += len(extra)
+                    dets += extra
             for d, tid in tracker.update(t, dets):
                 td = tdata[tid]
                 nx, ny, nw, nh = d.x1 / W, d.y1 / H, d.w / W, d.h / H
@@ -233,12 +302,12 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
                 edge = 0.7 if (d.x1 < 2 or d.y1 < 2 or d.x2 > W - 2 or d.y2 > H - 2) else 1.0
                 score = d.w * d.h * d.conf * edge
                 if score > td.best_score:
-                    td.best_score, td.best_t = score, t
+                    td.best_score, td.best_t, td.gray = score, t, gray
                     td.best_crop = d.crop(img, 0.06).copy()
                 if use_faces and d.cls == "person" and td.face_tries < 12 and t - td.last_face_t >= 0.9:
                     td.face_tries += 1
                     td.last_face_t = t
-                    for f, vec, fcrop in faces.faces_in_person(img, (d.x1, d.y1, d.x2, d.y2)):
+                    for f, vec, fcrop in faces.faces_in_person(det_img, (d.x1, d.y1, d.x2, d.y2)):
                         thumb = _save_jpg(fcrop, crops / "faces" / f"{uuid.uuid4().hex[:12]}.jpg", 92)
                         face_rows.append((eid, -tid, round(t, 3), f.x / W, f.y / H, f.w / W, f.h / H,
                                           round(f.score, 4), round(f.quality, 4), thumb, vec_to_blob(vec)))
@@ -247,7 +316,7 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
                         and t - td.last_plate_t >= 0.45):
                     td.plate_tries += 1
                     td.last_plate_t = t
-                    vcrop = d.crop(img, 0.02)
+                    vcrop = d.crop(det_img, 0.02)
                     reads = plates.read_vehicle(vcrop)
                     if reads:
                         r = reads[0]
@@ -278,7 +347,7 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     finished = tracker.close()
     kept, dropped = [], []
     for tr in finished:
-        (kept if (tr.hits >= 2 or tr.best_conf >= 0.6) else dropped).append(tr)
+        (kept if (tr.hits >= 2 or tr.best_conf >= 0.5) else dropped).append(tr)
     if face_rows:
         with db.tx() as c:
             c.executemany("INSERT INTO faces (evidence_id, track_id, t, x, y, w, h, score, quality, thumb, embedding) "
@@ -298,8 +367,11 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         cols: dict = {}
         thumb = None
         if crop is not None and crop.size:
-            cols = colors.describe_person(crop) if cls == "person" else (
-                colors.describe_vehicle(crop) if cls in MOTOR_VEHICLES else {"genel": colors.dominant(crop)})
+            if td.gray:
+                cols = colors.describe_gray(crop, cls)
+            else:
+                cols = colors.describe_person(crop) if cls == "person" else (
+                    colors.describe_vehicle(crop) if cls in MOTOR_VEHICLES else {"genel": colors.dominant(crop)})
             thumb = _save_jpg(crop, crops / "tracks" / f"{uuid.uuid4().hex[:12]}.jpg", 90)
         plate, pconf = plates.consensus(td.plate_reads)
         tid_db = db.insert("tracks", {
@@ -352,6 +424,7 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         "kisi_kumesi": len(db.rows("SELECT DISTINCT cluster FROM faces WHERE evidence_id = ?", (eid,))),
         "plakalar": [p["plate"] for p in plates_found],
         "hareket_ozeti": motion_summary,
+        "goruntu": {**picture, "iyilestirilen_kare": n_enhanced, "yakinlastirma_tespiti": n_zoom},
         "yuz_tanima": use_faces, "plaka_okuma": use_plates, "gorsel_arama": use_clip,
     }
     info["analiz"] = stats

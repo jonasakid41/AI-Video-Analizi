@@ -71,3 +71,21 @@ def describe_vehicle(crop: np.ndarray) -> dict:
     h, w = crop.shape[:2]
     body = crop[int(h * 0.25):int(h * 0.75), int(w * 0.15):int(w * 0.85)]
     return {"govde": dominant(body)}
+
+
+def tone(crop: np.ndarray) -> list[tuple[str, float]]:
+    """Siyah-beyaz karede renk yerine ton: koyu / orta / açık."""
+    if crop is None or crop.size == 0:
+        return []
+    v = float(cv2.cvtColor(cv2.resize(crop, (16, 16), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).mean())
+    return [("koyu ton" if v < 75 else "açık ton" if v > 160 else "orta ton", 1.0)]
+
+
+def describe_gray(crop: np.ndarray, cls: str) -> dict:
+    """Renksiz (gece/IR) kayıtta renk adı yerine ton; "renksiz" işareti renk filtresini devre dışı bırakır.
+    Kızılötesinde koyu giysi açık görünebilir; tonlar yalnızca yardımcı bilgidir."""
+    h, w = crop.shape[:2]
+    if cls == "person":
+        return {"ust": tone(crop[int(h * 0.18):int(h * 0.50), int(w * 0.2):int(w * 0.8)]),
+                "alt": tone(crop[int(h * 0.55):int(h * 0.90), int(w * 0.2):int(w * 0.8)]), "renksiz": True}
+    return {"govde": tone(crop[int(h * 0.25):int(h * 0.75), int(w * 0.15):int(w * 0.85)]), "renksiz": True}

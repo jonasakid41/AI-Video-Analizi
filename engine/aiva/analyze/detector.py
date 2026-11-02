@@ -28,6 +28,7 @@ CLASSES_TR = {
     "umbrella": "şemsiye", "knife": "bıçak", "cell phone": "cep telefonu", "baseball bat": "sopa",
     "dog": "köpek", "cat": "kedi", "bottle": "şişe", "laptop": "dizüstü bilgisayar",
 }
+PERSON_ID = COCO.index("person")
 VEHICLES = {"car", "motorcycle", "bus", "truck", "bicycle"}
 MOTOR_VEHICLES = {"car", "motorcycle", "bus", "truck"}
 
@@ -86,7 +87,10 @@ class Detector:
         blob = np.ascontiguousarray(padded.transpose(2, 0, 1)[None], dtype=np.float32)
         return blob, r
 
-    def detect(self, img: np.ndarray, min_conf: float = 0.35, nms: float = 0.45) -> list[Det]:
+    def detect(self, img: np.ndarray, min_conf: float = 0.35, nms: float = 0.45,
+               person_conf: float | None = None) -> list[Det]:
+        """person_conf: kişiler için ayrı (genelde daha düşük) eşik. Uzak/karanlık kişilerin güveni
+        düşük çıkar; tek karelik yanlış tespitleri sonradan takip (en az 2 kare) eler."""
         blob, r = self._preprocess(img)
         out = self.sess.run(None, {self.input_name: blob})[0]
         out[..., :2] = (out[..., :2] + self._grids) * self._strides
@@ -96,9 +100,13 @@ class Detector:
         cls_scores = pred[:, 5:][:, self.keep_ids] * obj
         cls_idx = cls_scores.argmax(1)
         conf = cls_scores[np.arange(len(cls_idx)), cls_idx]
-        mask = conf >= min_conf
+        thr = np.full(len(conf), min_conf, np.float32)
+        if person_conf is not None:
+            thr[self.keep_ids[cls_idx] == PERSON_ID] = person_conf
+        mask = conf >= thr
         if not mask.any():
             return []
+        min_conf = float(thr[mask].min())
         boxes = pred[mask, :4]
         conf = conf[mask]
         cls_ids = self.keep_ids[cls_idx[mask]]

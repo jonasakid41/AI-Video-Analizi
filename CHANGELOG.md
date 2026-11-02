@@ -1,5 +1,32 @@
 # Sürüm geçmişi
 
+## 0.1.3 — 2 Kasım 2026
+
+Abonelikle yapay zekâ kullanımı, uzaktaki kişilerin bulunması ve gece/siyah-beyaz kayıtlar.
+
+- **Bilgisayardaki AI araçları (abonelik):**
+  - OpenRouter yerine bilgisayarda kurulu Claude Code, OpenAI Codex CLI ya da Gemini CLI kullanılabilir. Ücret alınmaz; aboneliğin kullanım sınırları geçerlidir.
+  - Ayarlar > Yapay zekâ'da kurulu araçlar sürümleriyle listelenir. "Test et" ile çalıştığı denenir, "Kullan" ile tüm görevler o araca geçer.
+  - Modeller "abonelik" rozetiyle görev seçicide görünür; model karşılaştırmada da kullanılabilir.
+  - Video analizi için video yerine kısa aralıklı kareler gönderilir.
+  - Kullanım sınırı ya da açık olmayan oturum gibi hatalar anlaşılır bir mesajla gösterilir.
+  - Codex ve Gemini desteği deneyseldir.
+- **"Kayıtta kişi var ama bulunamadı" düzeltmeleri:**
+  - Geniş açılı yüksek çözünürlüklü kameralarda hareket 640 px'te ölçülüyor. Küçük ama süren hareket de bölümü "aktif" sayıyor; önceden bu bölümler 10 sn'de bir kareyle taranıyor ve kişi kaçıyordu.
+  - Hiçbir tespitin açıklamadığı hareket bölgesi kırpılıp büyütülerek yeniden taranıyor. Testte uzaktaki kişilerde bulunan iz 1'den 19'a çıktı.
+  - Kişiler için tespit eşiği düşürüldü. Tek karelik yanlış tespitleri takip filtresi eliyor.
+  - Dedektörün tanımadığı hareket anları, hareket bölgesi yakından gösterilerek yapay zekâya doğrulatılıyor.
+  - Kutusuz kareler modele daha yüksek çözünürlükte gönderiliyor.
+  - Doğrulama talimatı uzak, küçük ve karanlık figürleri kaçırmayacak şekilde düzenlendi.
+- **Gece / siyah-beyaz (IR) kayıtlar:**
+  - Siyah-beyaz kareler otomatik tanınıyor. Renk yerine ton (koyu/açık) kaydediliyor ve "siyah-beyaz kayıt" olarak işaretleniyor.
+  - Renkli sorularda (ör. "kırmızı montlu") kişiler renge göre elenmiyor. Modele rengin doğrulanamayacağı söyleniyor; cevapta da açıkça belirtiliyor.
+  - Görsel arama siyah-beyaz kayıtta renk sözcükleri olmadan yapılıyor.
+  - Karanlık ya da düşük kontrastlı karelerde kişi, yüz ve plaka kontrast artırılarak aranıyor.
+  - İyileştir sekmesine "Gece / IR", "Plaka / yazı" ve "Genel" hazır ayarları eklendi; siyah-beyaz kayıtta gece ayarı öneriliyor.
+  - Siyah-beyaz karede gürültü azaltma tek kanalda yapılıyor; daha hızlı ve renk lekesiz.
+  - Bilgi sekmesinde "Görüntü" satırı var: renkli ya da siyah-beyaz, düşük ışık oranı, yakınlaştırmayla gelen ek tespitler.
+- **Cevaplar:** Yapay zekâ cevabı düz metin olarak yazılıyor ve arama notlarını (ör. siyah-beyaz kayıt) dikkate alıyor.
 ## 0.1.2 — 2 Kasım 2026
 
 Uygulama içi güncelleme eklendi; soru sorulurken görülen siyah ekran giderildi.

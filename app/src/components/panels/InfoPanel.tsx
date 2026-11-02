@@ -5,9 +5,23 @@ import { api, caseExportsDir, dataDir, openFolder } from "../../lib/api";
 import { ACTION_LABELS, fmtBytes, fmtDateTime, IGNORABLE_KINDS, KIND_STYLE } from "../../lib/format";
 import { qk, useHistory } from "../../lib/hooks";
 import { fmtDuration } from "../../lib/time";
-import type { Evidence } from "../../lib/types";
+import type { AnalysisStats, Evidence } from "../../lib/types";
 import { toast, toastError } from "../../store";
 import { Badge, Button, Empty, inputCls, KV, Section } from "../ui";
+
+const pct = (v: number) => `%${Math.round(v * 100)}`;
+
+/** Siyah-beyaz (gece/IR), düşük ışık ve küçük nesneler için yapılan uyarlamalar */
+function pictureText(g?: AnalysisStats["goruntu"]): string {
+  if (!g) return "—";
+  const parts = [
+    g.renksiz_oran >= 0.6 ? "siyah-beyaz (gece/IR) — renk yerine ton kaydedildi" : g.renksiz_oran >= 0.1 ? `kısmen siyah-beyaz (${pct(g.renksiz_oran)})` : "renkli",
+  ];
+  if (g.dusuk_isik_oran >= 0.1) parts.push(`düşük ışık ${pct(g.dusuk_isik_oran)}`);
+  if (g.iyilestirilen_kare) parts.push(`${g.iyilestirilen_kare} kare kontrast artırılarak tarandı`);
+  if (g.yakinlastirma_tespiti) parts.push(`yakınlaştırmayla ${g.yakinlastirma_tespiti} ek tespit`);
+  return parts.join(" · ");
+}
 
 export default function InfoPanel({ caseId, ev }: { caseId: number; ev?: Evidence }) {
   const { data: history } = useHistory(caseId);
@@ -145,6 +159,7 @@ function EvidenceInfo({ ev }: { ev: Evidence }) {
                   ? Object.entries(stats.hareket_ozeti).sort((a, b) => b[1] - a[1])
                       .map(([k, v]) => `${KIND_STYLE[k]?.name ?? k} ${fmtDuration(v)}${IGNORABLE_KINDS.includes(k) ? " (önemsiz)" : ""}`).join(" · ")
                   : "—"],
+                ["Görüntü", pictureText(stats.goruntu)],
                 ["Süre / aygıt", `${stats.sure_sn.toplam?.toFixed(1)} sn · ${stats.aygit === "DmlExecutionProvider" ? "GPU (DirectML)" : "CPU"}`],
               ]}
             />

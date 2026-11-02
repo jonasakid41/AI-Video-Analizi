@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, FolderOpen, KeyRound, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, openFolder } from "../lib/api";
-import { qk, useCatalog, useSettings, useSystem } from "../lib/hooks";
+import { qk, useCatalog, useCliTools, useSettings, useSystem } from "../lib/hooks";
 import type { EngineInfo, ModelInfo, Settings } from "../lib/types";
 import { toast, toastError, useUI } from "../store";
 import { Badge, Button, Field, inputCls, KV, Modal, Section, Spinner, Tabs, Toggle } from "./ui";
@@ -66,6 +66,7 @@ function AiTab({ s, save }: { s: Settings; save: (p: Record<string, unknown>) =>
 
   return (
     <div className="space-y-6">
+      <CliSection s={s} />
       <Section title="OpenRouter API anahtarı">
         {s.api_key_set ? (
           <div className="flex items-center gap-2">
@@ -165,6 +166,97 @@ function AiTab({ s, save }: { s: Settings; save: (p: Record<string, unknown>) =>
   );
 }
 
+type CliResult = { ok: boolean; seconds: number; text?: string; error?: string };
+
+/** Claude Code / Codex / Gemini CLI: kullanıcının aboneliğiyle oturum açtığı yerel araçlar */
+function CliSection({ s }: { s: Settings }) {
+  const qc = useQueryClient();
+  const { data: tools, isFetching } = useCliTools();
+  const [testing, setTesting] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, CliResult>>({});
+  const active = s.ai_source === "cli" ? s.ai.roles.verifier.split(":")[1] : null;
+
+  const rescan = () => {
+    qc.invalidateQueries({ queryKey: ["cli"] });
+    qc.invalidateQueries({ queryKey: qk.catalog });
+    qc.invalidateQueries({ queryKey: qk.settings });
+  };
+  const use = async (tool: string, label: string) => {
+    try {
+      qc.setQueryData(qk.settings, await api.post<Settings>("/api/ai/cli/use", { tool }));
+      qc.invalidateQueries({ queryKey: qk.catalog });
+      toast(`Tüm görevler artık ${label} ile yapılacak`, "ok");
+    } catch (e) {
+      toastError(e);
+    }
+  };
+  const test = async (tool: string) => {
+    setTesting(tool);
+    try {
+      const r = await api.post<CliResult>("/api/ai/cli/test", { tool });
+      setResults((old) => ({ ...old, [tool]: r }));
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  return (
+    <Section
+      title="Bilgisayardaki yapay zekâ araçları (abonelik)"
+      actions={
+        <button className="flex items-center gap-1 text-[12px] text-muted hover:text-text cursor-pointer" onClick={rescan}>
+          <RefreshCw className={`size-3 ${isFetching ? "animate-spin" : ""}`} /> yeniden tara
+        </button>
+      }
+    >
+      <p className="text-[11.5px] leading-snug text-faint">
+        Claude Pro/Max, ChatGPT Plus/Pro ya da Google aboneliğiniz varsa ilgili CLI aracında oturum açıp onu kullanabilirsiniz. Ücret OpenRouter'dan düşmez; aboneliğinizin kullanım sınırları geçerlidir. Seçilen kareler aracın sağlayıcısına gönderilir.
+      </p>
+      {!tools ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-1.5">
+          {tools.map((t) => {
+            const r = results[t.tool];
+            return (
+              <div key={t.tool} className={`flex items-center gap-2 rounded-lg border p-2.5 ${active === t.tool ? "border-ok/50 bg-ok/5" : "border-line bg-panel-2"}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    {t.label}
+                    {t.experimental && <Badge title="Bu araç için arayüz belgelerine göre yazıldı; test edip kullanın">deneysel</Badge>}
+                    {active === t.tool && <Badge tone="ok">kullanılıyor</Badge>}
+                  </div>
+                  <div className="truncate text-[11.5px] text-faint" title={t.path ?? ""}>
+                    {t.found ? `${t.version ?? "sürüm okunamadı"} · ${t.path}` : `Kurulu değil. Kurduktan sonra bir terminalde "${t.login}" komutuyla giriş yapıp yeniden tarayın.`}
+                  </div>
+                  {r && <div className={`mt-0.5 text-[11.5px] ${r.ok ? "text-ok" : "text-danger"}`}>{r.ok ? `Çalışıyor (${r.seconds} sn): ${r.text}` : r.error}</div>}
+                </div>
+                {t.found && (
+                  <>
+                    <Button size="sm" variant="subtle" busy={testing === t.tool} onClick={() => test(t.tool)}>
+                      Test et
+                    </Button>
+                    <Button size="sm" variant={active === t.tool ? "default" : "primary"} disabled={active === t.tool} onClick={() => use(t.tool, t.label)}>
+                      {active === t.tool ? "Seçili" : "Kullan"}
+                    </Button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {active && (
+        <p className="text-[11.5px] leading-snug text-faint">
+          Soru çözümleme, kare doğrulama ve video analizi bu araçla yapılır (video yerine kısa aralıklı kareler gönderilir). Modelleri aşağıdan değiştirebilir, OpenRouter'a dönmek için bir profil seçebilirsiniz.
+        </p>
+      )}
+    </Section>
+  );
+}
+
 function ModelPicker({ label, value, need, models, onChange }: { label: string; value: string; need: "text" | "image" | "video"; models?: ModelInfo[]; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -173,7 +265,7 @@ function ModelPicker({ label, value, need, models, onChange }: { label: string; 
   const list = useMemo(() => {
     const ql = q.toLowerCase();
     return (models ?? [])
-      .filter((m) => (need === "video" ? m.video : need === "image" ? m.image : true))
+      .filter((m) => (need === "video" ? m.video || m.cli : need === "image" ? m.image : true))
       .filter((m) => !onlyFree || m.free)
       .filter((m) => !ql || m.id.toLowerCase().includes(ql) || m.name.toLowerCase().includes(ql))
       .slice(0, 120);
@@ -197,7 +289,7 @@ function ModelPicker({ label, value, need, models, onChange }: { label: string; 
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-2 top-2 size-4 text-faint" />
               <input autoFocus className={`${inputCls} h-8 pl-7`} placeholder="Model ara ya da kimliği yazıp Enter'a basın" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => {
-                if (e.key === "Enter" && q.includes("/")) {
+                if (e.key === "Enter" && (q.includes("/") || q.startsWith("cli:"))) {
                   onChange(q.trim());
                   setOpen(false);
                 }
@@ -224,6 +316,7 @@ function ModelPicker({ label, value, need, models, onChange }: { label: string; 
                 </div>
                 <div className="flex shrink-0 gap-1">
                   {m.video && <Badge tone="accent">video</Badge>}
+                  {m.cli && need === "video" && <Badge title="Video yerine kısa aralıklı kareler gönderilir">kareler</Badge>}
                   {m.structured && <Badge>JSON</Badge>}
                 </div>
                 <Price m={m} />
@@ -238,6 +331,7 @@ function ModelPicker({ label, value, need, models, onChange }: { label: string; 
 }
 
 function Price({ m }: { m: ModelInfo }) {
+  if (m.cli) return <Badge tone="ok">abonelik</Badge>;
   if (m.free) return <Badge tone="ok">ücretsiz</Badge>;
   return (
     <span className="shrink-0 text-right text-[11px] leading-tight text-muted tabular" title="1 milyon token başına USD (girdi / çıktı)">

@@ -71,6 +71,7 @@ export interface AnalysisStats {
   kisi_kumesi: number;
   plakalar: string[];
   hareket_ozeti?: Record<string, number>;
+  goruntu?: { renksiz_oran: number; dusuk_isik_oran: number; iyilestirilen_kare: number; yakinlastirma_tespiti: number };
   yuz_tanima: boolean;
   plaka_okuma: boolean;
   gorsel_arama: boolean;
@@ -355,6 +356,18 @@ export interface ModelInfo {
   free: boolean;
   price_in_m: number;
   price_out_m: number;
+  cli?: boolean; // bilgisayardaki CLI aracı (abonelik): video yerine kareler gönderilir
+}
+
+export interface CliTool {
+  tool: "claude" | "codex" | "gemini";
+  label: string;
+  path: string | null;
+  found: boolean;
+  version: string | null;
+  experimental: boolean;
+  login: string;
+  models: { id: string; name: string }[];
 }
 
 export interface Catalog {
@@ -398,6 +411,8 @@ export interface Settings {
   ui?: { last_case?: number | null };
   api_key_set: boolean;
   api_key_masked: string;
+  ai_ready: boolean; // doğrulamalı/derin mod kullanılabilir mi (anahtar ya da kurulu CLI aracı)
+  ai_source: "api" | "cli";
   profiles: Record<string, { label: string; roles: Record<string, string> }>;
 }
 

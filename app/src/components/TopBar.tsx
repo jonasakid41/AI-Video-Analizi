@@ -55,8 +55,8 @@ export default function TopBar({ info }: { info: EngineInfo }) {
           title="Yapay zekâ profili"
         >
           <Cpu className="size-3.5" />
-          {settings.profiles[settings.ai.profile]?.label ?? "Özel"}
-          {!settings.api_key_set && <Badge tone="warn">anahtar yok</Badge>}
+          {settings.ai_source === "cli" ? "CLI (abonelik)" : settings.profiles[settings.ai.profile]?.label ?? "Özel"}
+          {!settings.ai_ready && <Badge tone="warn">{settings.ai_source === "cli" ? "araç yok" : "anahtar yok"}</Badge>}
         </button>
       )}
       {(upd?.latest?.newer || upd?.staged) && (

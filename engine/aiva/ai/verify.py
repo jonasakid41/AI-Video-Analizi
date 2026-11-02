@@ -18,6 +18,7 @@ from .search import Candidate
 
 CROP_MAX = 512
 CONTEXT_W = 640
+FRAME_MAX = 1024  # kutusuz (tam kare) adaylar: uzaktaki küçük kişiler küçültmede kaybolmasın
 
 
 def _crop(img: np.ndarray, box: list[float] | None, pad: float = 0.25) -> np.ndarray:
@@ -62,7 +63,7 @@ def candidate_images(c: Candidate, with_context: bool) -> tuple[list[np.ndarray]
     if got is None:
         return [], None
     _t, img = got
-    out = [_fit(_crop(img, c.box), CROP_MAX)] if c.box else [_fit(img, 768)]
+    out = [_fit(_crop(img, c.box), CROP_MAX)] if c.box else [_fit(img, FRAME_MAX)]
     if with_context and c.box:
         out.append(_context(img, c.box))
     return out, img
@@ -72,6 +73,10 @@ def label(c: Candidate) -> str:
     when = c.real_t.replace("T", " ") if c.real_t else f"video içi {c.t:.1f}. sn"
     where = c.camera or c.video
     extra = f", {c.cls_tr}" if c.cls_tr else ""
+    if c.cls_tr == "tanımlanamayan hareket":
+        extra += " (yerel dedektör tanıyamadı; kutu hareketin olduğu bölgedir)"
+    if c.gray:
+        extra += " — siyah-beyaz (gece/kızılötesi) kayıt: renkler görünmez"
     return f"Aday {c.id} — {where}, saat {when}{extra}"
 
 

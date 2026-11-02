@@ -35,7 +35,7 @@ export default function AskPanel({ caseId, ev }: { caseId: number; ev?: Evidence
   const [busy, setBusy] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
 
-  const keyMissing = settings && !settings.api_key_set && settings.ai.base_url.includes("openrouter");
+  const keyMissing = settings && !settings.ai_ready;
   useEffect(() => {
     if (keyMissing) setMode("hizli");
   }, [keyMissing]);
@@ -126,7 +126,13 @@ export default function AskPanel({ caseId, ev }: { caseId: number; ev?: Evidence
             Sor
           </Button>
         </div>
-        {keyMissing && <div className="text-[11.5px] text-warn">API anahtarı olmadığı için yalnızca yerel arama yapılabilir. Ayarlar'dan anahtar ekleyebilirsiniz.</div>}
+        {keyMissing && (
+          <div className="text-[11.5px] text-warn">
+            {settings?.ai_source === "cli"
+              ? "Seçili CLI aracı bu bilgisayarda bulunamadı; yalnızca yerel arama yapılabilir. Ayarlar > Yapay zekâ'dan aracı yeniden tarayın."
+              : "Yapay zekâ bağlı değil; yalnızca yerel arama yapılabilir. Ayarlar'dan OpenRouter anahtarı girin ya da bilgisayarınızdaki Claude Code / Codex / Gemini CLI aracını seçin."}
+          </div>
+        )}
         {estimate && (
           <div className="flex items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-2 text-[12.5px]">
             <span className="flex-1">
@@ -174,7 +180,7 @@ function QueryItem({ q, caseId, open, onToggle }: { q: QueryRow; caseId: number;
   const [onlyMatch, setOnlyMatch] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
   const { data: settings } = useSettings();
-  const canCompare = !!settings && (settings.api_key_set || !settings.ai.base_url.includes("openrouter"));
+  const canCompare = !!settings?.ai_ready;
   const labels = full?.labels ?? {};
   const labeledCount = Object.keys(labels).length;
   const setLabel = async (id: string, v: boolean | null) => {
@@ -274,7 +280,7 @@ function QueryItem({ q, caseId, open, onToggle }: { q: QueryRow; caseId: number;
               <span className="flex-1">
                 {labeledCount ? `${labeledCount} sonuç işaretli` : "Doğru sonuçları ✓ / ✗ ile işaretleyip modelleri karşılaştırabilirsiniz"}
               </span>
-              <Button size="sm" variant="subtle" icon={<BarChart3 className="size-3.5" />} disabled={!canCompare} title={canCompare ? "" : "API anahtarı gerekir"} onClick={() => setEvalOpen(true)}>
+              <Button size="sm" variant="subtle" icon={<BarChart3 className="size-3.5" />} disabled={!canCompare} title={canCompare ? "" : "Yapay zekâ bağlantısı gerekir (API anahtarı ya da CLI aracı)"} onClick={() => setEvalOpen(true)}>
                 Modelleri karşılaştır
               </Button>
             </div>

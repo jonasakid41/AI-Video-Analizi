@@ -27,9 +27,9 @@ def create(case_id: int, question: str, options: dict) -> dict:
     if len(question) < 3:
         raise ValueError("Soru çok kısa")
     mode = options.get("mode") or "dogrula"
-    if mode != "hizli" and not client.configured():
+    if mode != "hizli" and not client.configured(settings.load()["ai"]["roles"]["verifier"]):
         mode = "hizli"
-        options["mode_note"] = "API anahtarı olmadığı için yalnızca yerel arama yapıldı"
+        options["mode_note"] = "Yapay zekâ bağlantısı (API anahtarı ya da CLI aracı) olmadığı için yalnızca yerel arama yapıldı"
     options["mode"] = mode
     qid = db.insert("queries", {"case_id": case_id, "question": question, "options": dumps(options),
                                 "status": "beklemede", "created_at": now_iso()})
@@ -103,7 +103,7 @@ def _summary(question: str, items: list[dict], model: str | None, case_id: int, 
     notes = notes or []
     if events_mode and items:
         local = "Önemli olaylar (zaman sırasıyla):\n" + "\n".join(_event_lines(items))
-        if model and client.configured():
+        if model and client.configured(model):
             try:
                 res = client.chat(model, [{"role": "system", "content": prompts.ANSWER_SYSTEM},
                                           {"role": "user", "content": f"Soru: {question}\nOlay listesi:\n{local}"}],
@@ -117,16 +117,17 @@ def _summary(question: str, items: list[dict], model: str | None, case_id: int, 
     if verified and not matched:
         return _local_answer(question, items, notes), 0.0
     use = matched or items[:8]
-    if model and client.configured() and use:
+    if model and client.configured(model) and use:
         lines = []
         for i in use[:12]:
             v = i.get("verdict") or {}
             when = _tr_dt(i.get("real_t")) or f"{i['t']:.0f}. sn"
             lines.append(f"- {when} | {i.get('camera') or i.get('video')} | {i.get('cls_tr') or 'kare'} | "
                          f"{v.get('explanation') or i.get('color_text') or ''} | plaka: {v.get('plate') or i.get('plate') or '-'}")
+        extra = ("\nArama notları:\n" + "\n".join(f"- {n}" for n in notes)) if notes else ""
         try:
             res = client.chat(model, [{"role": "system", "content": prompts.ANSWER_SYSTEM},
-                                      {"role": "user", "content": f"Soru: {question}\nSonuçlar:\n" + "\n".join(lines)}],
+                                      {"role": "user", "content": f"Soru: {question}\nSonuçlar:\n" + "\n".join(lines) + extra}],
                               role="ozet", case_id=case_id, query_id=qid, max_tokens=500)
             return res["content"].strip(), res["cost"]
         except client.AIError:

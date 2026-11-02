@@ -37,6 +37,9 @@ class Sample:
     blobs: int
     largest: float          # en büyük lekenin görüntüye oranı
     diff: float = 0.0       # ardışık örnekler arası fark (tekrarlayan hareketi de görür: ağaç, bayrak…)
+    mlargest: float = 0.0   # MOG2 maskesindeki en büyük lekenin oranı (tekrarlayan hareket bastırılmış)
+    boxes: tuple = ()       # MOG2 lekelerinin kutuları, büyükten küçüğe en fazla 4 (0–1 x, y, w, h)
+    mlargest_px: int = 0    # aynı lekenin ölçüm çözünürlüğündeki piksel alanı
 
     def grid(self) -> np.ndarray:
         return np.unpackbits(self.mask)[: GRID_W * GRID_H].reshape(GRID_H, GRID_W).astype(bool)
@@ -74,12 +77,39 @@ class MotionMeter:
         n, _lab, stats, _c = cv2.connectedComponentsWithStats(both)
         areas = stats[1:, cv2.CC_STAT_AREA] if n > 1 else np.zeros(0)
         grid = cv2.resize(both.astype(np.float32), (GRID_W, GRID_H), interpolation=cv2.INTER_AREA) > 0.12
+        nm, _l, ms, _c = cv2.connectedComponentsWithStats(mask)
+        mh, mw = mask.shape
+        blobs = sorted((r for r in ms[1:] if r[cv2.CC_STAT_AREA] >= 6), key=lambda r: -r[cv2.CC_STAT_AREA])[:4] if nm > 1 else []
         return Sample(t, float(mask.mean()), np.packbits(grid.reshape(-1)), brightness,
                       int((areas >= 2).sum()), float(areas.max() / both.size) if areas.size else 0.0,
-                      float(dmask.mean()))
+                      float(dmask.mean()),
+                      float(blobs[0][cv2.CC_STAT_AREA] / mask.size) if blobs else 0.0,
+                      tuple((r[0] / mw, r[1] / mh, r[2] / mw, r[3] / mh) for r in blobs),
+                      int(blobs[0][cv2.CC_STAT_AREA]) if blobs else 0)
 
     def score(self, img_bgr: np.ndarray) -> float:
         return self.measure(img_bgr).score
+
+
+# Uzaktaki bir kişi ölçüm karesinde birkaç piksellik leke olur: toplam hareket eşiğin altında kalsa da
+# ardışık örneklerde süren derli toplu bir leke "aktif" sayılır (yoksa o bölüm seyrek taranıp kişi kaçıyordu).
+# Eşik piksel cinsindendir; yüksek çözünürlüklü videolar daha geniş ölçüm karesiyle taranır (meter_width).
+MIN_BLOB_PX = 12
+
+
+def meter_width(video_width: float) -> int:
+    """Geniş açılı yüksek çözünürlüklü kamerada uzaktaki kişiler 320 px'te tamamen kaybolur."""
+    return 640 if video_width >= 1280 else 320
+
+
+def compact(samples: list[Sample]) -> list[bool]:
+    big = [s.mlargest_px >= MIN_BLOB_PX for s in samples]
+    return [b and ((i > 0 and big[i - 1]) or (i + 1 < len(big) and big[i + 1])) for i, b in enumerate(big)]
+
+
+def segment_signal(samples: list[Sample], threshold: float) -> list[tuple[float, float]]:
+    """active_segments için (t, değer): küçük ama süren hareket eşik değerine yükseltilir."""
+    return [(s.t, max(s.score, threshold) if c else s.score) for s, c in zip(samples, compact(samples))]
 
 
 def active_segments(samples: list[tuple[float, float]], threshold: float, pad: float = 1.5,
@@ -124,7 +154,7 @@ def _box_mask(boxes, pad: float = 0.1) -> np.ndarray:
 
 def classify(samples: list[Sample], boxes: BoxIndex, threshold: float) -> list[str | None]:
     grids = [s.grid() for s in samples]
-    active = [s.visible >= threshold for s in samples]
+    active = [s.visible >= threshold or c for s, c in zip(samples, compact(samples))]
     overlap = [0.0] * len(samples)
     for i, s in enumerate(samples):
         if not active[i]:

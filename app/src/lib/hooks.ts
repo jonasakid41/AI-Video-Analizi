@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, refresh, wsUrl } from "./api";
 import { Mapping } from "./time";
 import type {
-  Activity, Case, Catalog, DetectionRow, Evaluation, Evidence, Face, Finding, HistoryRow, Job, Person, QueryRow, Roi, Settings,
+  Activity, Case, Catalog, CliTool, DetectionRow, Evaluation, Evidence, Face, Finding, HistoryRow, Job, Person, QueryRow, Roi, Settings,
   SystemInfo, TimeMappingData, Track, UpdateStatus,
 } from "./types";
 
@@ -81,6 +81,7 @@ export const useSystem = () => useQuery({ queryKey: qk.system, queryFn: () => ap
 // Açılış denetimi motorda arka planda çalışır; sonucu birkaç kez yoklanır
 export const useUpdateStatus = () =>
   useQuery({ queryKey: qk.update, queryFn: () => api.get<UpdateStatus>("/api/update"), staleTime: 60_000, refetchInterval: 10 * 60_000 });
+export const useCliTools = () => useQuery({ queryKey: ["cli"], queryFn: () => api.get<CliTool[]>("/api/ai/cli"), staleTime: 60_000 });
 export const useCatalog = (enabled = true) =>
   useQuery({ queryKey: qk.catalog, queryFn: () => api.get<Catalog>("/api/models"), staleTime: 3600_000, enabled, retry: 1 });
 

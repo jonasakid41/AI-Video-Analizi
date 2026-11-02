@@ -26,9 +26,19 @@ NELER YAPAR?
 - Bulguları onaylayıp PDF vaka raporu üretir.
 
 YAPAY ZEKÂ (İSTEĞE BAĞLI)
-Ayarlar > Yapay zekâ bölümüne OpenRouter (openrouter.ai) API anahtarınızı girin.
-Ücretsiz modeller de seçilebilir. Ücretli modellerin maliyeti kendi OpenRouter hesabınızdan düşer;
-her sorudan önce tahmini maliyet gösterilir.
+İki yol vardır:
+1. Abonelik: Bilgisayarınızda Claude Code, OpenAI Codex CLI ya da Gemini CLI kuruluysa ve aboneliğinizle
+   oturum açtıysanız, Ayarlar > Yapay zekâ > "Bilgisayardaki yapay zekâ araçları" bölümünde "Kullan"a basın.
+   Ücret alınmaz; aboneliğinizin kullanım sınırları geçerlidir. (Codex ve Gemini desteği deneyseldir.)
+2. API: Ayarlar > Yapay zekâ bölümüne OpenRouter (openrouter.ai) API anahtarınızı girin.
+   Ücretsiz modeller de seçilebilir. Ücretli modellerin maliyeti kendi OpenRouter hesabınızdan düşer;
+   her sorudan önce tahmini maliyet gösterilir.
+
+GECE / SİYAH-BEYAZ KAYITLAR
+Gece kızılötesi (siyah-beyaz) kayıtlar otomatik tanınır: renk yerine ton (koyu/açık) kaydedilir,
+renkli sorularda kişiler renge göre elenmez ve yapay zekâya rengin doğrulanamayacağı söylenir.
+Karanlık karelerde kişi ve araçlar kontrast artırılarak aranır. İyileştir sekmesindeki
+"Gece / IR" hazır ayarı bu kayıtlar için önerilir.
 
 GÜNCELLEME
 Ayarlar > Sistem > "Güncellemeleri denetle" ile yeni sürüm uygulama içinden indirilip kurulur.

@@ -21,7 +21,9 @@ engine\.venv\Scripts\python scripts\build_release.py     # dist\AIVideoAnalizi (
 - **Tasarım ilkeleri:**
   - Sunucu, hesap ve telemetri yoktur.
   - Tüm veri `data/` klasöründedir (exe'nin yanında, geliştirmede depo kökünde).
-  - Dışarıya giden bağlantılar yalnızca kullanıcının başlattığı OpenRouter istekleri ve güncelleme denetimidir (GitHub). Açılışta denetim seçimlidir ve varsayılan olarak kapalıdır.
+  - Dışarıya giden bağlantılar yalnızca şunlardır:
+    - Kullanıcının başlattığı yapay zekâ istekleri: OpenRouter ya da kullanıcının seçtiği CLI aracı (Claude Code / Codex / Gemini) üzerinden.
+    - Güncelleme denetimi (GitHub). Açılışta denetim seçimlidir ve varsayılan olarak kapalıdır.
   - API anahtarı Windows DPAPI ile şifrelenir (`aiva/vault.py`).
 - **Zaman ekseni:** Tespit ve bulgular medya zamanı (`t`, sn) ile saklanır. Gerçek saat `TimeMapping` ile gösterim anında hesaplanır. Python tarafı `aiva/timecorr/mapping.py`, istemci kopyası `app/src/lib/time.ts`; ikisi aynı sonucu vermeli.
 - **Video:** FFmpeg ayrı exe olarak değil, PyAV'ın içindeki kitaplıklarla kullanılır. Kare iş parçacıklı çözücüyü kapatmadan önce mutlaka boşaltmak gerekir; aksi halde kilitlenebilir. Bu yüzden çözme işlemleri `media/frames.py: decoding()` üzerinden yapılmalıdır.
@@ -31,6 +33,14 @@ engine\.venv\Scripts\python scripts\build_release.py     # dist\AIVideoAnalizi (
   - Dosyaları kabuk değiştirir: kendini `guncelleyici.exe` olarak kopyalar ve `--apply-update` kipinde çalışır (`app/src-tauri/src/updater.rs`). Hata olursa eski dosyalar geri konur.
   - Release'te paket adı `AIVideoAnalizi-<sürüm>-win64.zip` olmalı. Sürüm notlarında `ZIP SHA-256:` satırı bulunmalı; asset özeti yoksa o kullanılır.
 - **Uzun yollar:** Paketteki motor dosyaları derin klasörlerde. Uygulama uzun bir yola kurulduysa 260 karakter sınırı aşılır; açma ve silmede `update._long` (`\\?\` öneki) kullanılır.
+- **CLI araçları:**
+  - Kimlik biçimi `cli:<araç>:<model>` (`aiva/ai/cli.py`). `client.chat`, `catalog.get` ve `client.configured(model)` bu öneki tanır.
+  - Claude Code etkileşimsiz çalışır: `--tools ""` ve `--setting-sources project,local`; görüntüler stream-json ile gider. `--bare` kullanılmamalı, çünkü abonelik oturumunu (OAuth) okumaz.
+  - Testlerde gerçek CLI çağrılmamalı; `cli.find` ve `cli._run` sahtelenmeli.
+- **Görüntü uyarlamaları:**
+  - Yüksek çözünürlükte hareket 640 px'te ölçülür (`motion.meter_width`).
+  - Süren küçük lekeler bölümü aktif sayar (`MIN_BLOB_PX`). Açıklanamayan hareket bölgesi yakınlaştırılarak yeniden taranır (`analysis._zoom_detect`).
+  - Siyah-beyaz karede renk yerine ton yazılır (`colors.describe_gray`); `lowlight.frame_stats` tanır.
 - **Model cevapları:** Model planı ve doğrulama cevabı şemaya uymayabilir. Bu yüzden her zaman `planner.sanitize` ve `verify.verdict` üzerinden geçer; okunurken de `query.get` uygular.
 - **Kare parametresi:** Medya isteklerinde token `?k=` ile gider; `t` her zaman zaman parametresidir.
 - **Lisans:** Lisans GPL-3.0'dır. AGPL (Ultralytics) ya da ticari olmayan lisanslı modeller eklenmemeli. Yüz "restorasyonu" modelleri bilerek yoktur.

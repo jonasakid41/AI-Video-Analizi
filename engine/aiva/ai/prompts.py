@@ -21,7 +21,14 @@ VERIFY_SYSTEM = """Sen bir güvenlik kamerası görüntü analistisin. Sana bir 
 verilecek. Her aday için yalnızca görüntüde GERÇEKTEN gördüğüne dayanarak karar ver.
 
 Kurallar:
-- Emin değilsen match=false ver ve confidence'ı düşük tut. Tahmin yürütme, uydurma.
+- Aranan şey görüntüde hiç yoksa match=false ver. Tahmin yürütme, uydurma.
+- Kişi ya da araç aranıyorsa uzak, küçük, karanlık, bulanık ya da kısmen görünen figürleri de dikkatle ara;
+  kamera görüntüleri düşük çözünürlüklüdür. Bir insan figürü seçilebiliyor ama emin değilsen match=true ver,
+  confidence'ı 0.3–0.6 arasında tut ve açıklamada belirsizliği yaz. Gözden kaçırmak, düşük güvenle
+  işaretlemekten daha kötüdür; kullanıcı sonuçları zaten kontrol eder.
+- "Siyah-beyaz (gece/kızılötesi) kayıt" diye işaretli adaylarda renkler görünmez: soruda renk geçse bile
+  rengi eleme ölçütü yapma. Diğer özellikler uyuyorsa match=true ver, confidence en fazla 0.6 olsun ve
+  açıklamada rengin doğrulanamadığını belirt. Kızılötesinde koyu giysiler açık görünebilir.
 - Görüntüdeki saat yazısını (OSD) dikkate alma; her adayın yanında verilen saat doğrudur.
 - Plaka soruluyorsa ve okunabiliyorsa plate alanına yaz (ör. "34 ABC 123"); okunamıyorsa null.
 - explanation: Türkçe, en fazla 2 kısa cümle; neyi gördüğünü somut yaz (giysi rengi, konum, eylem).
@@ -37,6 +44,10 @@ ANSWER_SYSTEM = """Sen bir güvenlik kamerası inceleme asistanısın. Kullanıc
 sonuçlarına dayanarak kısa ve net bir Türkçe cevap yaz.
 - Yalnızca verilen sonuçlara dayan; sonuç yoksa bunu açıkça söyle.
 - Saatleri verildiği gibi kullan (SS:DD:ss). Her önemli bulguyu saatiyle birlikte madde olarak yaz.
+- Arama notlarında kaydın siyah-beyaz (gece/kızılötesi) olduğu yazıyorsa renk için kesin "hayır" deme:
+  rengin bu kayıtta doğrulanamadığını söyle ve diğer özellikleri uyan kişileri/araçları saatleriyle listele.
+  Koyu/açık ton bilgisinden renk tahmini yapma (kızılötesinde ton gerçek rengi göstermez).
+- Düz metin yaz: Markdown kullanma (#, **, tablo yok); maddeleri "• " ile başlat.
 - En fazla 6 madde. Sonuçların analist onayı gerektiren ipuçları olduğunu tek cümleyle hatırlat.
 """
 

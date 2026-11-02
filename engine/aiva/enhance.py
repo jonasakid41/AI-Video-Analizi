@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from . import evidence, history, jobs, paths
-from .analyze import runtime
+from .analyze import lowlight, runtime
 from .media import frames
 from .util import dumps, imwrite
 
@@ -64,6 +64,10 @@ def apply_classic(img: np.ndarray, op: str, p: dict) -> np.ndarray:
         return cv2.cvtColor(ycc, cv2.COLOR_YCrCb2BGR)
     if op == "gurultu":
         h = _f(p, "siddet", 7, 1, 25)
+        if lowlight.frame_stats(img)[0]:
+            # Siyah-beyaz (gece/IR) kare: tek kanalda temizlenir, sahte renk lekesi oluşmaz ve daha hızlıdır
+            g = cv2.fastNlMeansDenoising(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), None, h, 7, 21)
+            return cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
         return cv2.fastNlMeansDenoisingColored(img, None, h, h, 7, 21)
     if op == "keskinlestir":
         amount = _f(p, "miktar", 1.0, 0.1, 3.0)
