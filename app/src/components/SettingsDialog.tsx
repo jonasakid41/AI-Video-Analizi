@@ -4,13 +4,15 @@ import { useMemo, useState } from "react";
 import { api, openFolder } from "../lib/api";
 import { qk, useCatalog, useSettings, useSystem } from "../lib/hooks";
 import type { EngineInfo, ModelInfo, Settings } from "../lib/types";
-import { toast, toastError } from "../store";
+import { toast, toastError, useUI } from "../store";
 import { Badge, Button, Field, inputCls, KV, Modal, Section, Spinner, Tabs, Toggle } from "./ui";
+import UpdateSection from "./UpdateSection";
 
 type Tab = "ai" | "analiz" | "sistem";
 
 export default function SettingsDialog({ open, onClose, info }: { open: boolean; onClose: () => void; info: EngineInfo }) {
-  const [tab, setTab] = useState<Tab>("ai");
+  const tab = useUI((s) => s.settingsTab);
+  const setTab = (settingsTab: Tab) => useUI.setState({ settingsTab });
   const { data: s } = useSettings();
   const qc = useQueryClient();
 
@@ -36,7 +38,7 @@ export default function SettingsDialog({ open, onClose, info }: { open: boolean;
           ]}
         />
       </div>
-      {!s ? <Spinner /> : tab === "ai" ? <AiTab s={s} save={save} /> : tab === "analiz" ? <AnalysisTab s={s} save={save} /> : <SystemTab info={info} />}
+      {!s ? <Spinner /> : tab === "ai" ? <AiTab s={s} save={save} /> : tab === "analiz" ? <AnalysisTab s={s} save={save} /> : <SystemTab info={info} save={save} />}
     </Modal>
   );
 }
@@ -287,11 +289,12 @@ function AnalysisTab({ s, save }: { s: Settings; save: (p: Record<string, unknow
   );
 }
 
-function SystemTab({ info }: { info: EngineInfo }) {
+function SystemTab({ info, save }: { info: EngineInfo; save: (p: Record<string, unknown>) => Promise<void> }) {
   const { data: sys } = useSystem();
   if (!sys) return <Spinner />;
   return (
     <div className="space-y-5">
+      <UpdateSection save={save} />
       <Section title="Uygulama">
         <KV
           rows={[
@@ -333,7 +336,7 @@ function SystemTab({ info }: { info: EngineInfo }) {
         </div>
       </Section>
       <p className="text-[11.5px] leading-snug text-faint">
-        AI Video Analizi açık kaynaklı ve ücretsizdir (GPL-3.0). Hesap, telemetri ya da kullanım kaydı yoktur; dışarıya yalnızca sizin başlattığınız yapay zekâ istekleri gider.
+        AI Video Analizi açık kaynaklı ve ücretsizdir (GPL-3.0). Hesap, telemetri ya da kullanım kaydı yoktur; dışarıya yalnızca sizin başlattığınız yapay zekâ istekleri ve güncelleme denetimi gider.
       </p>
     </div>
   );

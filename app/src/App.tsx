@@ -7,9 +7,9 @@ import TopBar from "./components/TopBar";
 import { Spinner, Toasts } from "./components/ui";
 import Workspace from "./components/Workspace";
 import { api, connect, onEngineError } from "./lib/api";
-import { useEngineEvents, useSettings } from "./lib/hooks";
+import { useEngineEvents, useSettings, useUpdateStatus } from "./lib/hooks";
 import type { EngineInfo } from "./lib/types";
-import { useUI } from "./store";
+import { toast, useUI } from "./store";
 
 export default function App() {
   const [info, setInfo] = useState<EngineInfo | null>(null);
@@ -59,7 +59,19 @@ function Main({ info }: { info: EngineInfo }) {
   const settingsOpen = useUI((s) => s.settingsOpen);
   const setSettingsOpen = useUI((s) => s.setSettingsOpen);
   const { data: settings } = useSettings();
+  const { data: upd } = useUpdateStatus();
   const restored = useRef(false);
+
+  // Güncelleyicinin sonucu bir kez bildirilir
+  const result = upd?.result;
+  const announced = useRef(false);
+  useEffect(() => {
+    if (!result || announced.current) return;
+    announced.current = true;
+    if (result.ok) toast(`Güncelleme tamamlandı: v${result.version}`, "ok");
+    else toast(`v${result.version} kurulamadı, önceki sürüm geri yüklendi: ${result.error ?? ""}`, "error");
+    api.post("/api/update/ack").catch(() => {});
+  }, [result]);
 
   // Son açılan vaka data/settings.json'da hatırlanır
   useEffect(() => {

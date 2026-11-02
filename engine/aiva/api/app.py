@@ -82,6 +82,7 @@ def startup(db_path: Path | None = None) -> None:
     db.init(db_path)
     jobs.recover_interrupted()
     # İş türlerini kaydet
-    from .. import analysis, enhance, evaluate, evidence, export, query, report, timeservice  # noqa: F401
+    from .. import analysis, enhance, evaluate, evidence, export, query, report, timeservice, update  # noqa: F401
     evidence.recover()
     analysis.recover()
+    update.startup()

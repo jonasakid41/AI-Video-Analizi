@@ -83,10 +83,20 @@ Tüm fazlar (0–5) ilk sürüm olarak uygulandı; taşınabilir paket `dist/AIV
   - Hareket türleri: sallanan ağaçlı sentetik videoda ağaç hareketi önemsiz sayılıyor, yaya olayları etiketleniyor.
   - Dinamik arama: aday bulunamazsa kare adayları ve ikinci tur devreye giriyor.
   - Araç kopyalarının birleştirilmesi.
-- **Arayüz (12 test):**
+- **0.1.2 ile eklenen motor testleri (toplam 95):**
+  - Güncelleme: sahte GitHub ile sürüm denetimi, yönlendirmeli indirme, SHA-256 uyuşmazlığı, özeti olmayan paket, zararlı ZIP yolu, açılış temizliği.
+  - Şemaya uymayan model planı ve doğrulama cevabının düzeltilmesi; eski kayıtların okunurken düzeltilmesi.
+- **Arayüz (14 test):**
   - Tip kontrolü.
   - Saat eşlemenin motorla aynı sonucu verdiği doğrulandı.
   - Tüm sekme ve pencereler sahte motor verisiyle jsdom'da çizildi.
+  - Eksik alanlı plan çökme yapmıyor; çizim hatası yalnızca kendi bölümünü kapatıyor ve günlüğe yazılıyor.
+  - Güncelleme bölümü: yeni sürüm, indirilmiş paket ve sürüm notları.
+- **Güncelleyici (paketlenmiş uygulamada elle):**
+  - Gerçek GitHub'dan 563 MB paket indirildi, SHA-256 doğrulandı ve uzun Türkçe yollu bir klasöre açıldı.
+  - Arayüzden "Yeniden başlat ve kur" → onay → dosya değişimi → yeni sürüm açıldı ve "Güncelleme tamamlandı" bildirimi göründü.
+  - Kilitli dosyayla başarısızlık: eski sürüm geri yüklendi ve hata bildirimi gösterildi.
+  - WebView2 çizim süreci sonlandırıldı: sayfa kendiliğinden yeniden yüklendi.
 - **Paket:**
   - Paketlenmiş motorda duman testi yapıldı.
   - Taşınabilir uygulama örnek bir vakayla açıldı ve pencere görüntüsüyle kontrol edildi.
@@ -598,7 +608,7 @@ resp = client.chat.completions.create(
 - **Konumlandırma:** Bu uygulama hızlı inceleme ve ön eleme aracıdır. Mahkemeye sunulacak iyileştirmeler için sertifikalı adli video iş akışları referans alınmalı.
 
 ### 4.9 Gizlilik ve güvenlik
-- **Hiçbir şey dışarı gitmez; tek istisna kullanıcının başlattığı AI çağrıları:** Hesap, telemetri, kullanım istatistiği, otomatik güncelleme kontrolü ve hata raporu gönderimi yoktur.
+- **Hiçbir şey dışarı gitmez; istisnalar kullanıcının başlattığı AI çağrıları ve güncelleme denetimidir:** Hesap, telemetri, kullanım istatistiği ve hata raporu gönderimi yoktur. Güncelleme, kullanıcı "Güncellemeleri denetle" dediğinde GitHub'dan yalnızca sürüm bilgisi sorularak denetlenir. Açılışta otomatik denetim seçimlidir ve varsayılan olarak kapalıdır (v0.1.2).
 - **İlk açılış bilgilendirmesi:** Tek ekranlık bir bildirim gösterilir: *"Soru sorduğunuzda seçilen kareler veya kesitler, seçtiğiniz AI sağlayıcısına gönderilir. Başka hiçbir veri bilgisayarınızdan çıkmaz. Kayıtları kullanmaya ilişkin yasal sorumluluk kullanıcıya aittir."* Kullanıcı bunu bir kez onaylar.
 - **Motor erişimi:** Yalnızca `127.0.0.1`, rastgele port ve oturum token'ı.
 - **API anahtarı:** DPAPI ile şifreli. Arayüzde maskeli gösterilir, günlüklere yazılmaz.

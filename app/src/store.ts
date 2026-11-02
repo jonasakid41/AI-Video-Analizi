@@ -31,6 +31,7 @@ interface UIState {
   clipIn: number | null;
   clipOut: number | null;
   settingsOpen: boolean;
+  settingsTab: "ai" | "analiz" | "sistem";
   toasts: Toast[];
   openCase: (id: number | null) => void;
   selectEvidence: (id: number | null) => void;
@@ -42,7 +43,7 @@ interface UIState {
   setSelBox: (b: Box | null) => void;
   setMarkers: (m: Marker[]) => void;
   setClip: (which: "in" | "out" | "clear", t?: number) => void;
-  setSettingsOpen: (v: boolean) => void;
+  setSettingsOpen: (v: boolean, tab?: "ai" | "analiz" | "sistem") => void;
   toast: (text: string, kind?: Toast["kind"]) => void;
   dismiss: (id: number) => void;
 }
@@ -63,6 +64,7 @@ export const useUI = create<UIState>((set, get) => ({
   clipIn: null,
   clipOut: null,
   settingsOpen: false,
+  settingsTab: "ai",
   toasts: [],
   openCase: (id) => set({ caseId: id, evidenceId: null, time: 0, markers: [], selBox: null, drawMode: null }),
   selectEvidence: (id) => {
@@ -84,7 +86,7 @@ export const useUI = create<UIState>((set, get) => ({
     else if (which === "in") set({ clipIn: t ?? get().time });
     else set({ clipOut: t ?? get().time });
   },
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  setSettingsOpen: (settingsOpen, tab) => set(tab ? { settingsOpen, settingsTab: tab } : { settingsOpen }),
   toast: (text, kind = "info") => {
     const id = ++toastId;
     set({ toasts: [...get().toasts, { id, kind, text }] });

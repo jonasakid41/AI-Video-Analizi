@@ -43,6 +43,13 @@ def get(query_id: int) -> dict:
         raise KeyError("Sorgu bulunamadı")
     for k in ("options", "plan", "results"):
         q[k] = loads(q[k], {} if k != "results" else [])
+    # Eski sürümlerin kaydettiği şemaya uymayan model cevapları arayüzü bozmasın
+    if q["plan"]:
+        q["plan"] = planner.sanitize(q["plan"], q["question"])
+    q["results"] = [r for r in q["results"] if isinstance(r, dict)] if isinstance(q["results"], list) else []
+    for r in q["results"]:
+        if isinstance(r.get("verdict"), dict):
+            r["verdict"] = verifymod.verdict(r["verdict"])
     q["labels"] = loads(q.get("labels"), {}) or {}
     return q
 

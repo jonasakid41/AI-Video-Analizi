@@ -1,5 +1,20 @@
 # Sürüm geçmişi
 
+## 0.1.2 — 2 Kasım 2026
+
+Uygulama içi güncelleme eklendi; soru sorulurken görülen siyah ekran giderildi.
+
+- **Uygulama içi güncelleme:**
+  - Ayarlar > Sistem > "Güncellemeleri denetle" ile yeni sürüm GitHub'dan indirilip kurulur. Yeni sürüm varsa üst çubukta rozet görünür.
+  - İndirilen paketin SHA-256 değeri yayımlanan değerle karşılaştırılır; uyuşmazsa dosya silinir.
+  - "Yeniden başlat ve kur" ile uygulama kapanır, program dosyaları değiştirilir ve yeni sürüm açılır. `data/` klasöründeki vakalar ve ayarlar korunur.
+  - Bir dosya kullanımda olduğu için değişim başarısız olursa önceki sürüm otomatik geri yüklenir ve nedeni gösterilir.
+  - Açılışta otomatik denetim isteğe bağlıdır ve varsayılan olarak kapalıdır.
+- **Siyah ekran düzeltmesi:**
+  - Yapay zekâdan şemaya uymayan bir plan ya da doğrulama cevabı geldiğinde (ör. eksik renk listesi, metin olarak "false", nesne olarak plaka) arayüz çöküp siyah ekran kalabiliyordu. Bu cevaplar artık motorda düzeltiliyor; daha önce kaydedilmiş sorular da açılırken düzeltiliyor.
+  - Bir bölümde beklenmeyen bir çizim hatası olursa artık yalnızca o bölüm "Bu bölüm görüntülenemedi — Tekrar dene" gösteriyor; uygulamanın geri kalanı çalışmaya devam ediyor. Hata `data/logs/arayuz.log` dosyasına yazılıyor.
+  - WebView2'nin çizim süreci çökerse (bellek ya da ekran kartı sürücüsü) sayfa kendiliğinden yeniden yükleniyor.
+- **Küçük düzeltme:** Yerel soru çözümleyicide "kırmızı" kelimesi hareket kelimesi ("kır") sanılıyordu.
 ## 0.1.1 — 2 Kasım 2026
 
 Dönüştürmenin "Kayıpsız kopya oluşturuluyor" adımında takılı kalması ve iptal edilememesi düzeltildi.

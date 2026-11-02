@@ -20,6 +20,7 @@ Kamera (CCTV/DVR) kayıtlarını bilgisayarda inceleyen, ücretsiz ve açık kay
 - **Ortak zaman çizelgesi:** Tüm kameraların kayıtları gerçek saat ekseninde yan yana gösterilir. Ardışık kesitler ve kayıt boşlukları görünür; tıklayınca ilgili ana gidilir.
 - **İyileştirme:** Klasik filtreler ve Real-ESRGAN ile AI büyütme vardır. AI ile büyütülen çıktılar filigranla işaretlenir.
 - **Rapor:** Bulgular onaylanır ve PDF vaka raporu üretilir.
+- **Uygulama içi güncelleme:** Yeni sürüm Ayarlar > Sistem'den indirilip kurulur. Paket SHA-256 ile doğrulanır, `data/` korunur ve hata olursa önceki sürüm geri yüklenir.
 - **Gizlilik:** Hesap ve telemetri yoktur. Tüm veriler exe'nin yanındaki `data/` klasöründe tutulur.
 
 Kullanıcı belgesi: [docs/BENIOKU.txt](docs/BENIOKU.txt) · Plan: [docs/PLAN.md](docs/PLAN.md)

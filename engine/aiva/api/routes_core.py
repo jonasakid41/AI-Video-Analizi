@@ -7,9 +7,10 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .. import __version__, cases, evidence, history, jobs, paths, settings, timeservice
+from .. import __version__, cases, evidence, history, jobs, paths, settings, timeservice, update
 from ..analyze import runtime
 from ..media import encoders
+from ..util import now_iso
 from . import deps
 
 router = APIRouter(prefix="/api")
@@ -54,6 +55,57 @@ def system() -> dict:
         "inference": runtime.device_info(),
         "models": runtime.models_status(),
     }
+
+
+class ClientLogIn(BaseModel):
+    where: str = Field(default="", max_length=200)
+    message: str = Field(default="", max_length=4000)
+    stack: str = Field(default="", max_length=20000)
+
+
+@router.post("/log")
+def client_log(body: ClientLogIn) -> dict:
+    """Arayüz hataları (çizim hatası, yakalanmamış istisna) data/logs/arayuz.log dosyasına yazılır."""
+    p = paths.logs_dir() / "arayuz.log"
+    if p.exists() and p.stat().st_size > 1_000_000:
+        p.replace(p.with_name("arayuz.log.1"))
+    with p.open("a", encoding="utf-8") as f:
+        f.write(f"[{now_iso()}] {__version__} {body.where}: {body.message}\n{body.stack.strip()}\n\n")
+    return {"ok": True}
+
+
+# --- güncelleme --------------------------------------------------------------------
+
+class UpdateIn(BaseModel):
+    version: str = Field(min_length=1, max_length=40)
+
+
+@router.get("/update")
+def update_status() -> dict:
+    return update.status()
+
+
+@router.post("/update/check")
+def update_check() -> dict:
+    update.check()
+    return update.status()
+
+
+@router.post("/update/download")
+def update_download(body: UpdateIn) -> dict:
+    return {"job_id": update.start_download(body.version)}
+
+
+@router.delete("/update/staged")
+def update_discard() -> dict:
+    update.discard()
+    return update.status()
+
+
+@router.post("/update/ack")
+def update_ack() -> dict:
+    update.ack_result()
+    return update.status()
 
 
 # --- ayarlar -----------------------------------------------------------------------

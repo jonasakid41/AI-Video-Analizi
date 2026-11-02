@@ -36,6 +36,7 @@ export const JOB_LABELS: Record<string, string> = {
   export_clip: "Kesit dışa aktarma",
   report: "Rapor",
   evaluate: "Model karşılaştırma",
+  guncelleme: "Güncelleme indirme",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

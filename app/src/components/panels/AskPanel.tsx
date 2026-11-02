@@ -239,10 +239,10 @@ function QueryItem({ q, caseId, open, onToggle }: { q: QueryRow; caseId: number;
           {plan && (
             <div className="flex flex-wrap gap-1 text-[11px]">
               {(plan.time_from || plan.time_to) && <Badge tone="accent">saat {plan.time_from ?? "…"}–{plan.time_to ?? "…"}</Badge>}
-              {plan.classes.map((c) => (
+              {(plan.classes ?? []).map((c) => (
                 <Badge key={c}>{CLASS_TR[c] ?? c}</Badge>
               ))}
-              {plan.colors.map((c, i) => (
+              {(plan.colors ?? []).map((c, i) => (
                 <Badge key={i}>
                   {c.color}
                   {TARGET_TR[c.target] ? ` ${TARGET_TR[c.target]}` : ""}

@@ -59,6 +59,12 @@ const fixtures: [RegExp, unknown][] = [
   [/^\/api\/system$/, { version: "0.1.0", data_dir: "C:\\data", models_dir: "C:\\models", frozen: true, encoders: [{ name: "h264_nvenc", label: "NVIDIA NVENC", ok: true }], encoder: "h264_nvenc", inference: { onnxruntime: "1.24", providers: ["DmlExecutionProvider"], gpu: true, label: "GPU (DirectML)" }, models: [{ key: "yolox_s", label: "Nesne tespiti", license: "Apache-2.0", ok: true, size_mb: 36 }] }],
   [/^\/api\/models$/, { models: [{ id: "c/d", name: "Model D", description: "", context: 1000, input: ["text", "image"], image: true, video: false, structured: true, free: false, price_in_m: 0.3, price_out_m: 1.2 }, { id: "e/f", name: "Video F", description: "", context: 1000, input: ["video", "image"], image: true, video: true, structured: true, free: true, price_in_m: 0, price_out_m: 0 }], total: 2, image_count: 2, video_count: 1, free_vision: 1, fetched_at: "2026-11-02 10:00" }],
   [/^\/api\/power$/, { on_battery: true, percent: 64 }],
+  [/^\/api\/update$/, { current: "0.1.2", can_apply: true, reason: null, check_on_start: false, last_check: "2026-11-02T10:00:00", staged: null, result: null,
+    latest: { current: "0.1.2", latest: "0.2.0", newer: true, title: "AI Video Analizi v0.2.0", notes: "## Yenilikler\n**Hızlı** arama", published_at: "2026-11-02T10:00:00Z", page: null, checked_at: "", asset: { name: "AIVideoAnalizi-0.2.0-win64.zip", size: 600 * 2 ** 20, url: "u", sha256: "ab" } } }],
+  // Eski sürümün kaydettiği, şemaya uymayan model planı (classes/colors yok)
+  [/^\/api\/cases\/2\/queries$/, [{ id: 10, question: "Kırmızı mont?", status: "tamamlandi", answer: "Sonuç yok.", cost: 0, created_at: "", finished_at: "", error: null, options: { mode: "dogrula" } }]],
+  [/^\/api\/queries\/10$/, { id: 10, question: "Kırmızı mont?", status: "tamamlandi", answer: "Sonuç yok.", cost: 0, created_at: "", finished_at: "", error: null, options: {}, plan: { intent: "ara" }, results: [], labels: {} }],
+  [/^\/api\/queries\/10\/evaluations$/, []],
   [/^\/api\/jobs$/, [{ id: 1, case_id: 1, evidence_id: 1, kind: "analyze", status: "calisiyor", progress: 0.4, message: "Nesne, yüz ve plaka analizi", params: {}, result: null, created_at: "" }]],
 ];
 
@@ -74,7 +80,7 @@ vi.mock("./lib/api", () => {
     wsUrl: () => "ws://127.0.0.1:1/api/events", pickFiles: vi.fn(async () => []), confirmDialog: vi.fn(async () => false),
     onFileDrop: vi.fn(async () => () => {}), openFolder: vi.fn(async () => ({})), dataDir: () => "C:\\data",
     caseExportsDir: () => "C:\\data\\cases\\1\\exports",
-    refresh: vi.fn(async () => false), onEngineError: vi.fn(),
+    refresh: vi.fn(async () => false), onEngineError: vi.fn(), reportError: vi.fn(), applyUpdate: vi.fn(async () => {}),
   };
 });
 
@@ -146,6 +152,50 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText("Plaka okuma")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Sistem" }));
     expect(await screen.findByText("Yerel modeller")).toBeTruthy();
+    expect(await screen.findByText("AI Video Analizi v0.2.0")).toBeTruthy();
+    expect(screen.getByText("İndir ve kur")).toBeTruthy();
+    expect(screen.getByText(/600 MB/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Sürüm notlarını göster"));
+    expect(screen.getByText(/Yenilikler\s+Hızlı arama/)).toBeTruthy(); // Markdown düz metne çevrilir
+  });
+
+  it("indirilmiş güncelleme, yeniden açılışta denetim yapılmadan da kurulabilir", async () => {
+    fixtures.unshift([/^\/api\/update$/, { current: "0.1.2", can_apply: true, reason: null, check_on_start: false, last_check: null, latest: null,
+      staged: { version: "0.1.3", dir: "C:\\x", created_at: "" }, result: null }]);
+    try {
+      const { default: UpdateSection } = await import("./components/UpdateSection");
+      wrap(<UpdateSection save={async () => {}} />);
+      expect(await screen.findByText("v0.1.3 indirildi ve doğrulandı.")).toBeTruthy();
+      expect(screen.getByText("Yeniden başlat ve kur")).toBeTruthy();
+    } finally {
+      fixtures.shift();
+    }
+  });
+
+  it("eksik alanlı plan ve çizim hatası arayüzü kapatmaz", async () => {
+    const { default: AskPanel } = await import("./components/panels/AskPanel");
+    wrap(<AskPanel caseId={2} />);
+    expect(await screen.findByText("Kırmızı mont?")).toBeTruthy();
+    expect(await screen.findByText("Sonuç yok.")).toBeTruthy();
+    const { default: ErrorBoundary } = await import("./components/ErrorBoundary");
+    const { reportError } = await import("./lib/api");
+    const Boom = () => {
+      throw new Error("patladı");
+    };
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    wrap(
+      <>
+        <ErrorBoundary area="test">
+          <Boom />
+        </ErrorBoundary>
+        <div>komşu bölüm</div>
+      </>,
+    );
+    quiet.mockRestore();
+    expect(screen.getByText("Bu bölüm görüntülenemedi")).toBeTruthy();
+    expect(screen.getByText("patladı")).toBeTruthy();
+    expect(screen.getByText("komşu bölüm")).toBeTruthy();
+    expect(reportError).toHaveBeenCalledWith("test", expect.any(Error), expect.any(String));
   });
 
   it("üst çubuk: pilde analiz uyarısı ve iş menüsü", async () => {
@@ -155,6 +205,7 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText(/Pilde %64/)).toBeTruthy();
     expect(await screen.findByText("1 iş")).toBeTruthy();
     expect(await screen.findByText("Otopark")).toBeTruthy();
+    expect(await screen.findByText("Yeni sürüm: v0.2.0")).toBeTruthy();
   });
 
   it("dönüştürme ekranı: hata ve yarıda kalma durumları", async () => {

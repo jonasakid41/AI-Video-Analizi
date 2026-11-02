@@ -67,6 +67,8 @@ DEFAULTS: dict[str, Any] = {
         "device": "auto",
     },
     "time": {"tz": "Europe/Istanbul"},
+    # Açılışta GitHub'a bağlanmak kullanıcının tercihidir (varsayılan kapalı; dışarıya izinsiz istek gitmez)
+    "update": {"check_on_start": False, "last_check": None},
     "secrets": {},
 }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import av
 import cv2
@@ -84,6 +85,29 @@ def estimate(model: str, cands: list[Candidate], with_context: bool, batch: int)
     return catalog.estimate(model, 400 * batches + 40 * len(cands), imgs, 60 * len(cands))
 
 
+def _rows(parsed: Any) -> list[dict]:
+    rows = parsed.get("results") if isinstance(parsed, dict) else parsed
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _scalar(v: Any) -> str:
+    return str(v).strip() if isinstance(v, (str, int, float)) and not isinstance(v, bool) else ""
+
+
+def verdict(r: dict) -> dict:
+    """Modelin aday cevabını şemaya uydurur (ör. "false" metni, %80 gibi güven, nesne olarak plaka)."""
+    m = r.get("match")
+    match = m if isinstance(m, bool) else _scalar(m).lower() in ("true", "evet", "yes", "1")
+    try:
+        conf = float(_scalar(r.get("confidence")).lstrip("%") or 0)
+    except ValueError:
+        conf = 0.0
+    if conf > 1:
+        conf /= 100
+    return {"match": match, "confidence": max(0.0, min(1.0, conf)), "explanation": _scalar(r.get("explanation"))[:400],
+            "plate": _scalar(r.get("plate")) or None}
+
+
 def verify(cands: list[Candidate], question: str, model: str, *, case_id: int, query_id: int,
            batch: int = 8, with_context: bool = True, progress=None) -> tuple[dict[str, dict], dict]:
     out: dict[str, dict] = {}
@@ -117,12 +141,10 @@ def verify(cands: list[Candidate], question: str, model: str, *, case_id: int, q
         usage["out"] += res["usage"]["out"]
         usage["calls"] += 1
         ids = {c.id for c in sent}
-        for r in res["parsed"].get("results", []):
+        for r in _rows(res["parsed"]):
             rid = str(r.get("id", "")).replace("Aday", "").strip()
-            if rid not in ids:
-                continue
-            out[rid] = {"match": bool(r.get("match")), "confidence": max(0.0, min(1.0, float(r.get("confidence") or 0))),
-                        "explanation": str(r.get("explanation") or "")[:400], "plate": r.get("plate")}
+            if rid in ids:
+                out[rid] = verdict(r)
         if progress:
             progress(min(1.0, (bi + batch) / len(cands)))
     return out, usage

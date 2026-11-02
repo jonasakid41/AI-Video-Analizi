@@ -4,7 +4,7 @@ import { api, refresh, wsUrl } from "./api";
 import { Mapping } from "./time";
 import type {
   Activity, Case, Catalog, DetectionRow, Evaluation, Evidence, Face, Finding, HistoryRow, Job, Person, QueryRow, Roi, Settings,
-  SystemInfo, TimeMappingData, Track,
+  SystemInfo, TimeMappingData, Track, UpdateStatus,
 } from "./types";
 
 export const qk = {
@@ -24,6 +24,7 @@ export const qk = {
   history: (caseId: number) => ["history", caseId] as const,
   time: (eid: number) => ["time", eid] as const,
   jobs: ["jobs"] as const,
+  update: ["update"] as const,
   settings: ["settings"] as const,
   system: ["system"] as const,
   catalog: ["catalog"] as const,
@@ -77,6 +78,9 @@ export const useTimeInfo = (eid: number | null) =>
   });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<Settings>("/api/settings") });
 export const useSystem = () => useQuery({ queryKey: qk.system, queryFn: () => api.get<SystemInfo>("/api/system"), staleTime: 60_000 });
+// Açılış denetimi motorda arka planda çalışır; sonucu birkaç kez yoklanır
+export const useUpdateStatus = () =>
+  useQuery({ queryKey: qk.update, queryFn: () => api.get<UpdateStatus>("/api/update"), staleTime: 60_000, refetchInterval: 10 * 60_000 });
 export const useCatalog = (enabled = true) =>
   useQuery({ queryKey: qk.catalog, queryFn: () => api.get<Catalog>("/api/models"), staleTime: 3600_000, enabled, retry: 1 });
 
@@ -128,6 +132,9 @@ function invalidateForJob(qc: QueryClient, j: Job) {
       break;
     case "evaluate":
       qc.invalidateQueries({ queryKey: ["evals"] });
+      break;
+    case "guncelleme":
+      inv(qk.update);
       break;
   }
   inv(qk.history(cid));

@@ -2,7 +2,7 @@ import { ArrowLeft, BatteryWarning, Cpu, ListChecks, Settings as SettingsIcon, X
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { JOB_LABELS, STATUS_LABELS } from "../lib/format";
-import { useCase, useJobs, usePower, useSettings } from "../lib/hooks";
+import { useCase, useJobs, usePower, useSettings, useUpdateStatus } from "../lib/hooks";
 import type { EngineInfo, Job } from "../lib/types";
 import { toastError, useUI } from "../store";
 import { Badge, IconButton, Progress } from "./ui";
@@ -15,7 +15,8 @@ export default function TopBar({ info }: { info: EngineInfo }) {
   const { data: settings } = useSettings();
   const { data: power } = usePower();
   const { data: jobs } = useJobs();
-  const busy = (jobs ?? []).some((j) => j.status === "calisiyor" && (j.kind === "analyze" || j.kind === "ingest" || j.kind === "enhance"));
+  const { data: upd } = useUpdateStatus();
+  const busy =(jobs ?? []).some((j) => j.status === "calisiyor" && (j.kind === "analyze" || j.kind === "ingest" || j.kind === "enhance"));
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
@@ -56,6 +57,11 @@ export default function TopBar({ info }: { info: EngineInfo }) {
           <Cpu className="size-3.5" />
           {settings.profiles[settings.ai.profile]?.label ?? "Özel"}
           {!settings.api_key_set && <Badge tone="warn">anahtar yok</Badge>}
+        </button>
+      )}
+      {(upd?.latest?.newer || upd?.staged) && (
+        <button onClick={() => setSettingsOpen(true, "sistem")} className="cursor-pointer" title="Ayarlar → Sistem → Güncelleme">
+          <Badge tone="accent">{upd.staged ? `v${upd.staged.version} kurulmaya hazır` : `Yeni sürüm: v${upd.latest?.latest}`}</Badge>
         </button>
       )}
       <JobsMenu />

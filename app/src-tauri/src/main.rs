@@ -2,12 +2,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(windows)]
+mod updater;
 
 /// Motor beklenmedik şekilde kapanırsa en fazla bu kadar yeniden başlatılır
 const MAX_RESTARTS: u32 = 3;
@@ -35,6 +38,97 @@ struct Engine {
 #[tauri::command]
 fn engine_info(state: State<Engine>) -> EngineInfo {
     state.info.lock().unwrap().clone()
+}
+
+/// Motorun hazırladığı güncellemeyi uygular: güncelleyiciyi başlatır ve uygulamayı kapatır
+#[tauri::command]
+fn apply_update(app: tauri::AppHandle, state: State<Engine>) -> Result<(), String> {
+    if cfg!(debug_assertions) || !cfg!(windows) {
+        return Err("Geliştirme sürümünde güncelleme uygulanamaz".into());
+    }
+    #[cfg(windows)]
+    {
+        let data_dir = PathBuf::from(state.info.lock().unwrap().data_dir.clone());
+        let upd = data_dir.join("updates");
+        let ready: serde_json::Value = fs::read_to_string(upd.join("hazir.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .ok_or("Kurulmaya hazır güncelleme bulunamadı")?;
+        let staged = PathBuf::from(ready["dir"].as_str().unwrap_or_default());
+        let version = ready["version"].as_str().unwrap_or_default().to_string();
+        let complete = staged.join(updater::EXE).is_file() && staged.join("engine").join("aiva-engine.exe").is_file();
+        if !staged.starts_with(&upd) || !complete {
+            return Err("Güncelleme dosyaları eksik; yeniden indirin".into());
+        }
+        let me = std::env::current_exe().map_err(|e| e.to_string())?;
+        let helper = upd.join("guncelleyici.exe");
+        fs::copy(&me, &helper).map_err(|e| format!("Güncelleyici hazırlanamadı: {e}"))?;
+        let exe_name = me.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| updater::EXE.into());
+        let args = [
+            "--apply-update".to_string(),
+            staged.display().to_string(),
+            exe_dir().display().to_string(),
+            data_dir.display().to_string(),
+            std::process::id().to_string(),
+            version,
+            exe_name,
+        ];
+        updater::spawn(&helper, &args)?;
+        app.exit(0);
+    }
+    Ok(())
+}
+
+/// Saat damgalı tek satır günlük (data/logs altındaki dosyalara)
+pub(crate) fn append_log(path: &Path, line: &str) {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    // Unix günlerinden takvim tarihine (UTC)
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    let stamp = format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60);
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[{stamp}] kabuk: {line}");
+    }
+}
+
+/// WebView2'nin çizim süreci çökerse (bellek, ekran kartı sürücüsü) pencere siyah kalıyordu.
+/// Çökme günlüğe yazılır ve sayfa yeniden yüklenir.
+#[cfg(windows)]
+fn watch_webview(win: &tauri::WebviewWindow, log: PathBuf) {
+    let _ = win.with_webview(move |wv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use webview2_com::ProcessFailedEventHandler;
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let handler = ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            if let Some(a) = &args {
+                a.ProcessFailedKind(&mut kind)?;
+            }
+            let reload = kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE;
+            append_log(
+                &log,
+                &format!("WebView2 süreci çöktü (tür {}){}", kind.0, if reload { "; sayfa yeniden yükleniyor" } else { "" }),
+            );
+            if let (true, Some(s)) = (reload, sender) {
+                s.Reload()?;
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ProcessFailed(&handler, &mut token);
+    });
 }
 
 fn exe_dir() -> PathBuf {
@@ -186,6 +280,13 @@ fn stop_engine(engine: &Engine) {
 }
 
 fn main() {
+    #[cfg(windows)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.get(1).map(String::as_str) == Some("--apply-update") {
+            return updater::run(&args[2..]);
+        }
+    }
     let (data_dir, portable) = resolve_data_dir();
     let engine = Engine::default();
     start_engine(&engine, data_dir.clone(), portable);
@@ -193,15 +294,17 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(engine)
-        .invoke_handler(tauri::generate_handler![engine_info])
+        .invoke_handler(tauri::generate_handler![engine_info, apply_update])
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            let _win = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("AI Video Analizi")
                 .inner_size(1480.0, 920.0)
                 .min_inner_size(1120.0, 700.0)
                 .maximized(true)
                 .data_directory(data_dir.join("webview"))
                 .build()?;
+            #[cfg(windows)]
+            watch_webview(&_win, data_dir.join("logs").join("arayuz.log"));
             Ok(())
         })
         .build(tauri::generate_context!())

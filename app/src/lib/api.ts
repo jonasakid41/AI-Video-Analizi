@@ -171,3 +171,23 @@ export async function onFileDrop(cb: (paths: string[]) => void, onHover?: (over:
 }
 
 export const openFolder = (path: string) => api.post("/api/open-folder", {}, { path });
+
+let reported = 0;
+
+/** Arayüz hatasını motorun günlüğüne (data/logs/arayuz.log) yazar. Oturum başına en fazla 20 kayıt. */
+export function reportError(where: string, err: unknown, extra = ""): void {
+  if (!base || ++reported > 20) return;
+  const e = err instanceof Error ? err : new Error(String(err));
+  fetch(url("/api/log"), {
+    method: "POST",
+    headers: { "x-aiva-token": token, "Content-Type": "application/json" },
+    body: JSON.stringify({ where, message: e.message.slice(0, 4000), stack: `${e.stack ?? ""}\n${extra}`.slice(0, 20000) }),
+  }).catch(() => {});
+}
+
+/** Hazırlanan güncellemeyi uygular: uygulama kapanır, dosyalar değiştirilir ve yeni sürüm açılır. */
+export async function applyUpdate(): Promise<void> {
+  if (!inTauri()) throw new Error("Güncelleme yalnızca masaüstü uygulamasında uygulanabilir");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("apply_update");
+}

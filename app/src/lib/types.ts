@@ -394,10 +394,34 @@ export interface Settings {
     device: string;
   };
   time: { tz: string };
+  update?: { check_on_start: boolean; last_check: string | null };
   ui?: { last_case?: number | null };
   api_key_set: boolean;
   api_key_masked: string;
   profiles: Record<string, { label: string; roles: Record<string, string> }>;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  newer: boolean;
+  title: string;
+  notes: string;
+  published_at: string | null;
+  page: string | null;
+  checked_at: string;
+  asset: { name: string; size: number; url: string; sha256: string | null } | null;
+}
+
+export interface UpdateStatus {
+  current: string;
+  can_apply: boolean;
+  reason: string | null;
+  check_on_start: boolean;
+  last_check: string | null;
+  latest: UpdateInfo | null;
+  staged: { version: string; dir: string; created_at: string } | null;
+  result: { ok: boolean; version: string; error?: string | null } | null;
 }
 
 export interface SystemInfo {

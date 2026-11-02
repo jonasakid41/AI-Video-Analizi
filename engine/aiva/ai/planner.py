@@ -29,8 +29,9 @@ CLASS_WORDS = {
 UPPER_WORDS = ["mont", "ceket", "tişört", "tisort", "gömlek", "gomlek", "kazak", "sweat", "hırka", "yelek",
                "kapüşon", "kapusonlu", "üst", "ust", "palto", "kaban"]
 LOWER_WORDS = ["pantolon", "etek", "şort", "sort", "eşofman", "esofman", "kot", "alt"]
-MOTION_WORDS = ["kavga", "düş", "dus", "koş", "kos", "kaç", "kac", "bırak", "birak", "çal", "cal", "kır", "kir",
-                "vur", "it", "saldır", "saldir", "atla", "tırman", "tirman", "kapı aç", "kapiyi ac"]
+# Düzenli ifade kökleri; "kır" renk adı "kırmızı" ile eşleşmesin
+MOTION_WORDS = ["kavga", "düş", "dus", "koş", "kos", "kaç", "kac", "bırak", "birak", "çal", "cal", "kır(?!mız)",
+                "kir(?!mız|li)", "vur", "it", "saldır", "saldir", "atla", "tırman", "tirman", "kapı aç", "kapiyi ac"]
 EN_CLASS = {"person": "a person", "car": "a car", "truck": "a truck or van", "bus": "a bus",
             "motorcycle": "a motorcycle", "bicycle": "a bicycle", "backpack": "a backpack", "handbag": "a handbag",
             "suitcase": "a suitcase", "umbrella": "an umbrella", "dog": "a dog", "cat": "a cat", "knife": "a knife",
@@ -141,6 +142,50 @@ def _visual_en(plan: dict) -> str:
     return (base + (" " + " and ".join(bits) if bits else "")).strip()
 
 
+INTENTS = ("ara", "say", "plaka", "yuz", "ozet", "genel")
+TARGETS = ("ust", "alt", "govde", "genel")
+
+
+def _text(v: Any) -> str | None:
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        v = str(v)
+    return (v.strip() or None) if isinstance(v, str) else None
+
+
+def _clock(v: Any) -> str | None:
+    m = re.fullmatch(r"(\d{1,2})(?:[:.](\d{2}))?", _text(v) or "")
+    return _hm(m.group(1), m.group(2)) if m else None
+
+
+def sanitize(p: Any, question: str, local: dict | None = None) -> dict[str, Any]:
+    """Modelin (ya da eski kayıtların) planını şemaya uydurur. Şemaya uymayan model cevapları
+    hem aramayı hem arayüzü bozabiliyordu (ör. eksik "colors", metin olarak gelen renkler)."""
+    local = local or local_plan(question)
+    p = dict(p) if isinstance(p, dict) else {}
+    out: dict[str, Any] = {k: v for k, v in p.items() if k in ("source", "warning")}
+    intent = _text(p.get("intent"))
+    out["intent"] = intent if intent in INTENTS else local["intent"]
+    classes = p.get("classes")
+    out["classes"] = ([c for c in classes if isinstance(c, str) and c in prompts.CLASS_ENUM]
+                      if isinstance(classes, list) else list(local["classes"]))
+    colors = p.get("colors")
+    if isinstance(colors, list):
+        out["colors"] = [{"target": c["target"] if c.get("target") in TARGETS else "genel", "color": c["color"]}
+                         for c in colors if isinstance(c, dict) and c.get("color") in prompts.COLOR_ENUM]
+    else:
+        out["colors"] = list(local["colors"])
+    plate = _text(p.get("plate"))
+    out["plate"] = (platemod.clean(plate) or None) if plate else None
+    # Model saat aralığını kaçırırsa yerel ayrıştırıcının bulduğunu kullan; soruda saat
+    # ifadesi yoksa modelin uydurduğu aralık yok sayılır (her şeyi eleyebiliyor)
+    for k in ("time_from", "time_to"):
+        out[k] = (_clock(p.get(k)) or local.get(k)) if has_time_words(question) else None
+    out["visual_query_en"] = _text(p.get("visual_query_en")) or local["visual_query_en"]
+    out["verify_question"] = _text(p.get("verify_question")) or question
+    out["needs_motion"] = p["needs_motion"] if isinstance(p.get("needs_motion"), bool) else local["needs_motion"]
+    return out
+
+
 def plan(question: str, model: str | None, case_id: int | None, query_id: int | None) -> tuple[dict, dict]:
     """(plan, kullanım) döner. Model hatasında yerel plana düşer."""
     if model and client.configured():
@@ -149,18 +194,8 @@ def plan(question: str, model: str | None, case_id: int | None, query_id: int | 
                                       {"role": "user", "content": question}],
                               prompts.PLAN_SCHEMA, role="planlayici", case_id=case_id, query_id=query_id,
                               max_tokens=600)
-            p = res["parsed"]
+            p = sanitize(res["parsed"], question)
             p["source"] = "model"
-            p["classes"] = [c for c in p.get("classes", []) if c in prompts.CLASS_ENUM]
-            if p.get("plate"):
-                p["plate"] = platemod.clean(p["plate"])
-            local = local_plan(question)
-            # Model saat aralığını kaçırırsa yerel ayrıştırıcının bulduğunu kullan; soruda saat
-            # ifadesi yoksa modelin uydurduğu aralık yok sayılır (her şeyi eleyebiliyor)
-            for k in ("time_from", "time_to"):
-                p[k] = (p.get(k) or local.get(k)) if has_time_words(question) else None
-            if not p.get("visual_query_en"):
-                p["visual_query_en"] = local["visual_query_en"]
             return p, {"cost": res["cost"], "in": res["usage"]["in"], "out": res["usage"]["out"]}
         except client.AIError as e:
             lp = local_plan(question)

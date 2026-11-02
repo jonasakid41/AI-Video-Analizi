@@ -2,6 +2,7 @@ import { CalendarClock, Car, FileSearch, Info, MessageSquareText, ScanFace, Spar
 import { useEffect } from "react";
 import { useEvidence, useEvidenceList, useFindings } from "../lib/hooks";
 import { type PanelTab, useUI } from "../store";
+import ErrorBoundary from "./ErrorBoundary";
 import EvidenceList from "./EvidenceList";
 import AskPanel from "./panels/AskPanel";
 import EnhancePanel from "./panels/EnhancePanel";
@@ -45,21 +46,27 @@ export default function Workspace({ caseId }: { caseId: number }) {
   return (
     <div className="grid h-full grid-cols-[264px_minmax(0,1fr)_420px] 2xl:grid-cols-[288px_minmax(0,1fr)_460px]">
       <aside className="min-h-0 border-r border-line bg-panel">
-        <EvidenceList caseId={caseId} />
+        <ErrorBoundary area="video listesi" resetKey={caseId}>
+          <EvidenceList caseId={caseId} />
+        </ErrorBoundary>
       </aside>
       <main className="min-h-0 min-w-0 bg-bg">
-        <Player caseId={caseId} ev={ev} />
+        <ErrorBoundary area="oynatıcı" resetKey={`${caseId}:${evidenceId}`}>
+          <Player caseId={caseId} ev={ev} />
+        </ErrorBoundary>
       </main>
       <aside className="flex min-h-0 flex-col border-l border-line bg-panel">
         <Tabs value={tab} onChange={setTab} items={items} compact />
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {tab === "sor" && <AskPanel caseId={caseId} ev={ev} />}
-          {tab === "bulgular" && <FindingsPanel caseId={caseId} />}
-          {tab === "kisiler" && <PeoplePanel caseId={caseId} ev={ev} />}
-          {tab === "plakalar" && <PlatesPanel caseId={caseId} ev={ev} />}
-          {tab === "iyilestir" && <EnhancePanel caseId={caseId} ev={ev} />}
-          {tab === "saat" && <TimePanel ev={ev} />}
-          {tab === "bilgi" && <InfoPanel caseId={caseId} ev={ev} />}
+          <ErrorBoundary area={`panel: ${tab}`} resetKey={`${caseId}:${tab}`}>
+            {tab === "sor" && <AskPanel caseId={caseId} ev={ev} />}
+            {tab === "bulgular" && <FindingsPanel caseId={caseId} />}
+            {tab === "kisiler" && <PeoplePanel caseId={caseId} ev={ev} />}
+            {tab === "plakalar" && <PlatesPanel caseId={caseId} ev={ev} />}
+            {tab === "iyilestir" && <EnhancePanel caseId={caseId} ev={ev} />}
+            {tab === "saat" && <TimePanel ev={ev} />}
+            {tab === "bilgi" && <InfoPanel caseId={caseId} ev={ev} />}
+          </ErrorBoundary>
         </div>
       </aside>
     </div>

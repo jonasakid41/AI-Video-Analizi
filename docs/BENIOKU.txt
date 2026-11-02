@@ -30,10 +30,17 @@ Ayarlar > Yapay zekâ bölümüne OpenRouter (openrouter.ai) API anahtarınızı
 Ücretsiz modeller de seçilebilir. Ücretli modellerin maliyeti kendi OpenRouter hesabınızdan düşer;
 her sorudan önce tahmini maliyet gösterilir.
 
+GÜNCELLEME
+Ayarlar > Sistem > "Güncellemeleri denetle" ile yeni sürüm uygulama içinden indirilip kurulur.
+İndirilen paket doğrulanır, uygulama kapanıp yeni sürümle yeniden açılır. "data" klasöründeki
+vakalar ve ayarlar korunur. Bir sorun olursa önceki sürüm otomatik olarak geri yüklenir.
+İsterseniz "Açılışta güncellemeleri denetle" seçeneğini açabilirsiniz (varsayılan kapalı).
+
 GİZLİLİK
 - Hesap, kayıt, telemetri, kullanım istatistiği yoktur.
 - Tüm veriler bu klasördeki "data" klasöründedir. Silmek için "data" klasörünü silmeniz yeterlidir.
-- Dışarıya yalnızca sizin başlattığınız yapay zekâ istekleri (seçilen kareler/kısa kesitler) gider.
+- Dışarıya yalnızca sizin başlattığınız yapay zekâ istekleri (seçilen kareler/kısa kesitler) ve
+  güncelleme denetimi (GitHub'dan yalnızca sürüm bilgisi) gider.
 - API anahtarı Windows tarafından şifrelenir; klasör başka bir bilgisayara taşınırsa yeniden girilmelidir.
 
 ÖNEMLİ
