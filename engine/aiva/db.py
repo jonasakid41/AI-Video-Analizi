@@ -164,7 +164,11 @@ CREATE TABLE evaluations(
 );
 """
 
-MIGRATIONS: list[str] = [SCHEMA_V1, SCHEMA_V2]
+SCHEMA_V3 = """
+ALTER TABLE activity ADD COLUMN kind TEXT;
+"""
+
+MIGRATIONS: list[str] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3]
 
 
 def init(path: Path | None = None) -> Path:

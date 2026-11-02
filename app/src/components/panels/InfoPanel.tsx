@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Copy, FolderOpen, RefreshCw, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, caseExportsDir, dataDir, openFolder } from "../../lib/api";
-import { ACTION_LABELS, fmtBytes, fmtDateTime } from "../../lib/format";
+import { ACTION_LABELS, fmtBytes, fmtDateTime, IGNORABLE_KINDS, KIND_STYLE } from "../../lib/format";
 import { qk, useHistory } from "../../lib/hooks";
 import { fmtDuration } from "../../lib/time";
 import type { Evidence } from "../../lib/types";
@@ -141,6 +141,10 @@ function EvidenceInfo({ ev }: { ev: Evidence }) {
                 ["Yüz / kişi", `${stats.yuz_sayisi} yüz · ${stats.kisi_kumesi} farklı kişi`],
                 ["Plakalar", stats.plakalar.length ? stats.plakalar.join(", ") : "—"],
                 ["Hareketli süre", `${fmtDuration(stats.aktif_sure_sn)} (${stats.aktif_bolum} bölüm)`],
+                ["Hareket türleri", stats.hareket_ozeti && Object.keys(stats.hareket_ozeti).length
+                  ? Object.entries(stats.hareket_ozeti).sort((a, b) => b[1] - a[1])
+                      .map(([k, v]) => `${KIND_STYLE[k]?.name ?? k} ${fmtDuration(v)}${IGNORABLE_KINDS.includes(k) ? " (önemsiz)" : ""}`).join(" · ")
+                  : "—"],
                 ["Süre / aygıt", `${stats.sure_sn.toplam?.toFixed(1)} sn · ${stats.aygit === "DmlExecutionProvider" ? "GPU (DirectML)" : "CPU"}`],
               ]}
             />

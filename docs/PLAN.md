@@ -72,13 +72,18 @@ Tüm fazlar (0–5) ilk sürüm olarak uygulandı; taşınabilir paket `dist/AIV
 
 **Test durumu**
 
-- **Motor (74 test):**
+- **Motor (84 test):**
   - Sentetik 19 dosyalık biçim seti: codec/kap kombinasyonları, yanlış uzantı, sahte üretici başlığı, ham akış, kesik ve bozuk dosyalar.
   - Saat eşleme ve ekran saati okuma (+222 sn kayma, 600 sn sıçrama).
   - Uçtan uca API akışı: dönüştürme → analiz → plaka → saat → yerel ve sahte modelli soru → bulgu → iyileştirme → dışa aktarma → PDF.
   - Gerçek yaya videosu (`vtest.avi`, DivX 3): 80 sn kayıt RTX 4060'ta ~4 sn'de analiz edildi.
 - **Birim testleri (motor):** Plaka biçimi, yerel planlayıcı, renk, takip, DPAPI, katalog ve OpenRouter hata eşlemesi.
-- **Arayüz (11 test):**
+- **0.1.1 ile eklenen motor testleri:**
+  - Ayrı süreçte çalışan işçi: çökme, takılma, iptal ve açılışta kurtarma.
+  - Hareket türleri: sallanan ağaçlı sentetik videoda ağaç hareketi önemsiz sayılıyor, yaya olayları etiketleniyor.
+  - Dinamik arama: aday bulunamazsa kare adayları ve ikinci tur devreye giriyor.
+  - Araç kopyalarının birleştirilmesi.
+- **Arayüz (12 test):**
   - Tip kontrolü.
   - Saat eşlemenin motorla aynı sonucu verdiği doğrulandı.
   - Tüm sekme ve pencereler sahte motor verisiyle jsdom'da çizildi.

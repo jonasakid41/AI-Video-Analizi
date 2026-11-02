@@ -43,6 +43,28 @@ def data_dir(tmp_path, monkeypatch) -> Path:
     db.close_thread_connection()
 
 
+def _wait_all(api, case_id, timeout=600):
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if not api.get("/api/jobs", params={"case_id": case_id, "active": True}).json():
+            return api.get("/api/jobs", params={"case_id": case_id}).json()
+        time.sleep(0.2)
+    raise TimeoutError("İşler bitmedi")
+
+
+@pytest.fixture()
+def api_client(data_dir):
+    """(TestClient, wait_all) — temiz veri klasörüyle çalışan motor."""
+    from fastapi.testclient import TestClient
+    from aiva.api import deps
+    from aiva.api.app import create_app, startup
+    startup(data_dir / "aiva.sqlite")
+    client = TestClient(create_app())
+    client.headers["x-aiva-token"] = deps.TOKEN
+    return client, _wait_all
+
+
 def models_available(*rel: str) -> bool:
     return all((MODELS / r).exists() for r in rel)
 

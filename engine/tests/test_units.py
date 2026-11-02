@@ -164,3 +164,12 @@ def test_client_error_mapping(data_dir, monkeypatch):
     from aiva import db
     calls = db.rows("SELECT ok FROM ai_calls ORDER BY id")
     assert [c["ok"] for c in calls] == [1, 0]
+
+
+def test_vehicle_duplicates_merged_across_classes():
+    from aiva.analyze.detector import Det, merge_vehicle_duplicates
+    dets = [Det("car", 0.57, 466, 74, 691, 174), Det("truck", 0.61, 462, 76, 694, 171),
+            Det("person", 0.9, 470, 80, 520, 170), Det("car", 0.8, 10, 10, 100, 60)]
+    out = merge_vehicle_duplicates(dets)
+    assert [d.cls for d in out] == ["person", "car", "truck"] or sorted(d.cls for d in out) == ["car", "person", "truck"]
+    assert len(out) == 3 and not any(d.cls == "car" and d.x1 == 466 for d in out)  # düşük güvenli kopya atıldı

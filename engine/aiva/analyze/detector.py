@@ -111,4 +111,23 @@ class Detector:
             x, y, bw, bh = xywh[i]
             dets.append(Det(COCO[int(cls_ids[i])], float(conf[i]),
                             float(max(0, x)), float(max(0, y)), float(min(W, x + bw)), float(min(H, y + bh))))
-        return dets
+        return merge_vehicle_duplicates(dets)
+
+
+def _iou(a: Det, b: Det) -> float:
+    ix = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))
+    iy = max(0.0, min(a.y2, b.y2) - max(a.y1, b.y1))
+    inter = ix * iy
+    union = a.w * a.h + b.w * b.h - inter
+    return inter / union if union > 0 else 0.0
+
+
+def merge_vehicle_duplicates(dets: list[Det], thr: float = 0.65) -> list[Det]:
+    """Aynı araç bazen hem "otomobil" hem "kamyon" olarak bulunur (sınıf bazlı NMS ikisini de tutar).
+    Araç sınıfları arasında büyük ölçüde çakışan kutulardan güveni yüksek olan kalır."""
+    out: list[Det] = []
+    for d in sorted(dets, key=lambda d: -d.conf):
+        if d.cls in MOTOR_VEHICLES and any(o.cls in MOTOR_VEHICLES and _iou(o, d) >= thr for o in out):
+            continue
+        out.append(d)
+    return out

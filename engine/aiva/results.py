@@ -100,15 +100,30 @@ def detections_range(evidence_id: int, t0: float, t1: float) -> list[dict]:
                    "ORDER BY t", (evidence_id, t0, t1))
 
 
+def events(evidence_id: int, m: TimeMapping | None = None) -> list[dict]:
+    """Hareket olayları: tür (nesne/cevre/isik/parazit/belirsiz), etiket, ayrıntı, saatler."""
+    m = m or evidence.get_mapping(evidence_id)
+    out = []
+    for r in db.rows("SELECT t0, t1, info FROM segments WHERE evidence_id = ? AND kind = 'olay' ORDER BY t0", (evidence_id,)):
+        info = loads(r["info"], {})
+        out.append({"t0": r["t0"], "t1": r["t1"], "real_t0": _iso(m, r["t0"]), "real_t1": _iso(m, r["t1"]),
+                    "kind": info.get("tur"), "label": info.get("etiket", ""), "detail": info.get("ayrinti", ""),
+                    "ignorable": bool(info.get("onemsiz")), "tracks": info.get("izler", [])})
+    return out
+
+
 def activity(evidence_id: int, buckets: int = 600) -> dict:
-    rows = db.rows("SELECT t, score FROM activity WHERE evidence_id = ? ORDER BY t", (evidence_id,))
-    segs = db.rows("SELECT kind, t0, t1 FROM segments WHERE evidence_id = ? ORDER BY t0", (evidence_id,))
+    rows = db.rows("SELECT t, score, kind FROM activity WHERE evidence_id = ? ORDER BY t", (evidence_id,))
+    segs = db.rows("SELECT kind, t0, t1 FROM segments WHERE evidence_id = ? AND kind != 'olay' ORDER BY t0", (evidence_id,))
     ev = evidence.require(evidence_id)
     dur = ev["duration"] or (rows[-1]["t"] if rows else 1.0)
     bins = np.zeros(buckets, np.float32)
+    kinds: list[str | None] = [None] * buckets
     for r in rows:
         i = min(buckets - 1, int(r["t"] / max(dur, 1e-6) * buckets))
-        bins[i] = max(bins[i], r["score"])
+        if r["score"] >= bins[i]:
+            bins[i] = r["score"]
+            kinds[i] = r["kind"]
     det_bins = {"person": np.zeros(buckets, np.int32), "vehicle": np.zeros(buckets, np.int32)}
     for r in db.rows("SELECT cls, t0, t1 FROM tracks WHERE evidence_id = ?", (evidence_id,)):
         key = "person" if r["cls"] == "person" else ("vehicle" if r["cls"] in ("car", "truck", "bus", "motorcycle") else None)
@@ -116,8 +131,9 @@ def activity(evidence_id: int, buckets: int = 600) -> dict:
             a = min(buckets - 1, int(r["t0"] / max(dur, 1e-6) * buckets))
             b = min(buckets - 1, int(r["t1"] / max(dur, 1e-6) * buckets))
             det_bins[key][a:b + 1] += 1
-    return {"duration": dur, "buckets": buckets, "activity": [round(float(x), 5) for x in bins],
-            "person": det_bins["person"].tolist(), "vehicle": det_bins["vehicle"].tolist(), "segments": segs}
+    return {"duration": dur, "buckets": buckets, "activity": [round(float(x), 5) for x in bins], "kinds": kinds,
+            "person": det_bins["person"].tolist(), "vehicle": det_bins["vehicle"].tolist(), "segments": segs,
+            "events": events(evidence_id)}
 
 
 # --- yüzler / kişiler ----------------------------------------------------------------

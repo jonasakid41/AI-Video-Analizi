@@ -23,6 +23,7 @@ from .analyze import clip, colors, faces, motion, plates, runtime
 from .analyze.detector import CLASSES_TR, MOTOR_VEHICLES, Detector
 from .analyze.tracker import Tracker
 from .media import frames
+from .results import color_text
 from .util import dumps, imwrite, loads, vec_to_blob
 
 FRAME_EMB_EVERY = 2.0
@@ -50,7 +51,7 @@ def rel(p: Path) -> str:
 def _clear(eid: int, crops: Path) -> None:
     for table in ("activity", "detections", "tracks", "faces", "plates", "frame_embeddings"):
         db.execute(f"DELETE FROM {table} WHERE evidence_id = ?", (eid,))
-    db.execute("DELETE FROM segments WHERE evidence_id = ? AND kind IN ('aktif','seyrek')", (eid,))
+    db.execute("DELETE FROM segments WHERE evidence_id = ? AND kind IN ('aktif','seyrek','olay')", (eid,))
     if crops.exists():
         shutil.rmtree(crops, ignore_errors=True)
 
@@ -60,6 +61,52 @@ def recover() -> None:
     for ev in db.rows("""SELECT DISTINCT e.id, e.case_id FROM evidence e
                          JOIN detections d ON d.evidence_id = e.id WHERE e.analyzed = 0"""):
         _clear(ev["id"], paths.evidence_dir(ev["case_id"], ev["id"]) / "crops")
+
+
+def _object_label(tracks: list[dict]) -> tuple[str, str]:
+    """Olaydaki izlerden kısa etiket ("2 kişi, 1 otomobil") ve ayrıntı (renk, plaka)."""
+    counts: dict[str, int] = defaultdict(int)
+    details: list[str] = []
+    for tr in tracks:
+        counts[CLASSES_TR.get(tr["cls"], tr["cls"])] += 1
+        bits = [CLASSES_TR.get(tr["cls"], tr["cls"])]
+        ct = color_text(tr["cls"], loads(tr["colors"], {}))
+        if ct:
+            bits.append(ct)
+        if tr["plate"]:
+            bits.append(f"plaka {tr['plate']}")
+        details.append(" · ".join(bits))
+    label = ", ".join(f"{n} {k}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1])[:3]) or "nesne"
+    return label, "; ".join(details[:6])
+
+
+def _motion_events(eid: int, msamples: list, threshold: float, scan_fps: float, use_keys: bool,
+                   keyframe_interval: float | None) -> dict:
+    """Hareket örneklerini türlerine ayırır, olayları kaydeder ve tür başına süre özetini döner."""
+    rows = db.rows("SELECT t, x, y, w, h FROM detections WHERE evidence_id = ?", (eid,))
+    boxes = motion.BoxIndex([(r["t"], r["x"], r["y"], r["w"], r["h"]) for r in rows])
+    kinds = motion.classify(msamples, boxes, threshold)
+    with db.tx() as c:
+        c.executemany("INSERT INTO activity (evidence_id, t, score, kind) VALUES (?, ?, ?, ?)",
+                      [(eid, round(s.t, 3), round(s.visible, 5), k) for s, k in zip(msamples, kinds)])
+    step = (keyframe_interval or 1.0) if use_keys else 1.0 / max(scan_fps, 0.1)
+    evs = motion.events(msamples, kinds, max_gap=max(2.5, 2.5 * step))
+    tracks = db.rows("SELECT id, cls, t0, t1, colors, plate FROM tracks WHERE evidence_id = ?", (eid,))
+    summary: dict[str, float] = defaultdict(float)
+    out = []
+    for kind, a, b in evs:
+        a, b = max(0.0, a - step / 2), b + step / 2
+        summary[kind] += b - a
+        info = {"tur": kind, "etiket": motion.KINDS[kind], "ayrinti": "", "onemsiz": kind in motion.IGNORABLE}
+        if kind == "nesne":
+            inside = [tr for tr in tracks if tr["t1"] >= a and tr["t0"] <= b]
+            if inside:
+                info["etiket"], info["ayrinti"] = _object_label(inside)
+                info["izler"] = [tr["id"] for tr in inside][:80]
+        out.append((eid, "olay", round(a, 3), round(b, 3), dumps(info)))
+    with db.tx() as c:
+        c.executemany("INSERT INTO segments (evidence_id, kind, t0, t1, info) VALUES (?, ?, ?, ?, ?)", out)
+    return {k: round(v, 1) for k, v in summary.items()}
 
 
 def _plan(segs: list[tuple[float, float]], duration: float, fps: float) -> list[tuple[float, float, float, str]]:
@@ -119,16 +166,14 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     ki = (info.get("donusturme") or {}).get("keyframe_interval") or frames.keyframe_interval(path)
     use_keys = ki is not None and ki <= 2.5
     meter = motion.MotionMeter()
-    samples: list[tuple[float, float]] = []
+    msamples: list[motion.Sample] = []
     scan_fps = float(cfg["scan_fps"])
     for t, frame in frames.iter_frames(path, scan_fps, keyframes_only=use_keys, cancel=ctx.check):
         small = frame.reformat(width=320, height=max(2, int(320 * H / W) // 2 * 2), format="bgr24").to_ndarray()
-        samples.append((t, meter.score(small)))
+        msamples.append(meter.measure(small, t))
         if duration:
             ctx.progress(0.02 + 0.18 * min(1.0, t / duration), "Hareket taraması")
-    with db.tx() as c:
-        c.executemany("INSERT INTO activity (evidence_id, t, score) VALUES (?, ?, ?)",
-                      [(eid, round(t, 3), round(s, 5)) for t, s in samples])
+    samples = [(s.t, s.score) for s in msamples]
     segs = motion.active_segments(samples, float(cfg["motion_threshold"]), duration=duration or None)
     plan = _plan(segs, duration, float(cfg["sample_fps"]))
     with db.tx() as c:
@@ -287,6 +332,8 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         labels = faces.cluster(vecs, [r["quality"] for r in frows])
         with db.tx() as c:
             c.executemany("UPDATE faces SET cluster = ? WHERE id = ?", [(lab, r["id"]) for lab, r in zip(labels, frows)])
+    # Hareketin türü (kişi/araç mı, ağaç/gölge/ışık/parazit mi) ve olay listesi
+    motion_summary = _motion_events(eid, msamples, float(cfg["motion_threshold"]), scan_fps, use_keys, ki)
     timings["ozet"] = round(time.monotonic() - t_c, 2)
     timings["toplam"] = round(time.monotonic() - t_all, 2)
 
@@ -304,6 +351,7 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         "yuz_sayisi": len(frows),
         "kisi_kumesi": len(db.rows("SELECT DISTINCT cluster FROM faces WHERE evidence_id = ?", (eid,))),
         "plakalar": [p["plate"] for p in plates_found],
+        "hareket_ozeti": motion_summary,
         "yuz_tanima": use_faces, "plaka_okuma": use_plates, "gorsel_arama": use_clip,
     }
     info["analiz"] = stats

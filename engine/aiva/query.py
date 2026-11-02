@@ -76,8 +76,39 @@ def estimate(case_id: int, question: str, options: dict) -> dict:
     return {"candidates": len(cands), "cost_usd": round(cost, 4), "free": free, "mode": mode, "notes": notes}
 
 
-def _summary(question: str, items: list[dict], model: str | None, case_id: int, qid: int) -> tuple[str, float]:
+def _event_lines(items: list[dict], limit: int = 25) -> list[str]:
+    lines = []
+    for i in items[:limit]:
+        when = _tr_dt(i.get("real_t")) or f"{i['t']:.0f}. sn"
+        dur = (i.get("t1") or i["t"]) - (i.get("t0") or i["t"])
+        if dur >= 1:
+            when += f" ({dur:.0f} sn)"
+        detail = f" — {i['color_text']}" if i.get("color_text") else ""
+        flag = " (incelenmeli)" if i.get("cls_tr") == "tanımlanamayan hareket" else ""
+        lines.append(f"• {when} · {i.get('camera') or i.get('video')}: {i.get('cls_tr') or 'hareket'}{detail}{flag}")
+    if len(items) > limit:
+        lines.append(f"• … ve {len(items) - limit} olay daha (sonuç listesinde)")
+    return lines
+
+
+def _summary(question: str, items: list[dict], model: str | None, case_id: int, qid: int,
+             notes: list[str] | None = None, events_mode: bool = False) -> tuple[str, float]:
+    notes = notes or []
+    if events_mode and items:
+        local = "Önemli olaylar (zaman sırasıyla):\n" + "\n".join(_event_lines(items))
+        if model and client.configured():
+            try:
+                res = client.chat(model, [{"role": "system", "content": prompts.ANSWER_SYSTEM},
+                                          {"role": "user", "content": f"Soru: {question}\nOlay listesi:\n{local}"}],
+                                  role="ozet", case_id=case_id, query_id=qid, max_tokens=600)
+                return res["content"].strip(), res["cost"]
+            except client.AIError:
+                pass
+        return local, 0.0
     matched = [i for i in items if i.get("verdict", {}).get("match")]
+    verified = any("verdict" in i for i in items)
+    if verified and not matched:
+        return _local_answer(question, items, notes), 0.0
     use = matched or items[:8]
     if model and client.configured() and use:
         lines = []
@@ -93,7 +124,7 @@ def _summary(question: str, items: list[dict], model: str | None, case_id: int, 
             return res["content"].strip(), res["cost"]
         except client.AIError:
             pass
-    return _local_answer(question, items), 0.0
+    return _local_answer(question, items, notes), 0.0
 
 
 def _tr_dt(iso: str | None) -> str:
@@ -106,14 +137,22 @@ def _tr_dt(iso: str | None) -> str:
         return iso.replace("T", " ")
 
 
-def _local_answer(question: str, items: list[dict]) -> str:
+def _local_answer(question: str, items: list[dict], notes: list[str] | tuple = ()) -> str:
+    reasons = [n for n in notes if n] if notes else []
     if not items:
-        return "Bu soruya uyan bir sonuç bulunamadı. Saat aralığını genişletmeyi ya da soruyu farklı ifade etmeyi deneyin."
+        msg = "Bu soruya uyan bir sonuç bulunamadı."
+        if reasons:
+            return msg + " Nedeni: " + " ".join(r.rstrip(".") + "." for r in reasons[:3])
+        return msg + " Saat aralığını genişletmeyi ya da soruyu farklı ifade etmeyi deneyin."
     matched = [i for i in items if i.get("verdict", {}).get("match")]
     verified = any("verdict" in i for i in items)
     use = matched if verified else items
     if verified and not matched:
-        return f"{len(items)} aday incelendi, model hiçbirinde soruya uyan bir durum görmedi."
+        widened = any("genişletildi" in r for r in reasons)
+        return (f"{sum(1 for i in items if 'verdict' in i)} aday incelendi"
+                + (" (arama genişletildi)" if widened else "")
+                + ", model hiçbirinde soruya uyan bir durum görmedi. Soruyu farklı ifade etmeyi, saat aralığını "
+                  "ya da kapsamı değiştirmeyi deneyin.")
     kinds = Counter(i.get("cls_tr") or "kare" for i in use)
     first = min(use, key=lambda i: i.get("real_t") or str(i["t"]))
     when = _tr_dt(first.get("real_t")) or f"videonun {first['t']:.0f}. saniyesi"
@@ -149,29 +188,62 @@ def query_job(ctx: jobs.JobContext, params: dict) -> dict:
             notes.insert(0, plan["warning"])
         if opts.get("mode_note"):
             notes.insert(0, opts["mode_note"])
-        items = [c.to_dict() for c in cands]
+        events_mode = False
+        if plan.get("intent") == "ozet":
+            ev_items, ev_notes = searchmod.case_events(case_id, plan, opts.get("evidence_ids"))
+            if ev_items:
+                cands = ev_items[:limit]
+                events_mode = True  # olay listesi zaten "ne oldu" sorusunun cevabı; kare doğrulaması gerekmez
+            notes += ev_notes
 
         verdicts: dict[str, dict] = {}
-        if mode in ("dogrula", "derin") and cands:
+        if mode in ("dogrula", "derin") and not events_mode:
             budget = float(opts.get("budget_usd") or s["budget_per_query_usd"])
-            est = verifymod.estimate(roles["verifier"], cands, s["send_context_frame"], int(s["batch_size"]))
-            if budget > 0 and est > budget and len(cands) > 4:
-                keep = max(4, int(len(cands) * budget / est))
-                notes.append(f"Bütçe sınırı nedeniyle {len(cands)} adaydan en iyi {keep} tanesi doğrulandı "
-                             f"(tahmin ${est:.3f} > bütçe ${budget:.2f}).")
-                cands = cands[:keep]
-            ctx.progress(0.25, f"{len(cands)} aday modele doğrulatılıyor")
-            verdicts, vu = verifymod.verify(cands, plan.get("verify_question") or q["question"], roles["verifier"],
-                                            case_id=case_id, query_id=qid, batch=int(s["batch_size"]),
-                                            with_context=bool(s["send_context_frame"]),
-                                            progress=lambda v: ctx.progress(0.25 + 0.55 * v, "Model doğruluyor"))
-            cost += vu["cost"]
-            tin += vu["in"]
-            tout += vu["out"]
-            notes += sorted(set(vu["errors"]))[:3]
-            for it in items:
-                if it["id"] in verdicts:
-                    it["verdict"] = verdicts[it["id"]]
+            spent = 0.0
+            if not cands:
+                # Yerel analiz bir şey bulamadı: model videolardan düzenli aralıklı kareleri doğrudan incelesin
+                cands = searchmod.expand(case_id, plan, opts.get("evidence_ids"), opts.get("roi_id"), min(limit, 24), [])
+                if cands:
+                    notes.append(f"Yerel analiz aday bulamadı; videolardan {len(cands)} kare doğrudan modele incelettirildi")
+            pending = list(cands)
+            question = plan.get("verify_question") or q["question"]
+            for rnd in (1, 2):
+                if not pending:
+                    break
+                est = verifymod.estimate(roles["verifier"], pending, s["send_context_frame"], int(s["batch_size"]))
+                left = budget - spent if budget > 0 else float("inf")
+                if est > left and len(pending) > 4:
+                    keep = max(4, int(len(pending) * max(0.0, left) / est)) if left > 0 else 0
+                    notes.append(f"Bütçe sınırı nedeniyle {len(pending)} adaydan {keep} tanesi incelendi "
+                                 f"(bütçe ${budget:.2f}).")
+                    pending = pending[:keep]
+                if not pending:
+                    break
+                label = "Model doğruluyor" if rnd == 1 else "Arama genişletildi, model yeni kareleri inceliyor"
+                ctx.progress(0.25 if rnd == 1 else 0.55, f"{label} ({len(pending)} aday)")
+                v, vu = verifymod.verify(pending, question, roles["verifier"], case_id=case_id, query_id=qid,
+                                         batch=int(s["batch_size"]), with_context=bool(s["send_context_frame"]),
+                                         progress=lambda x, rnd=rnd: ctx.progress((0.25 if rnd == 1 else 0.55) + 0.28 * x, label))
+                verdicts.update(v)
+                spent += vu["cost"]
+                cost += vu["cost"]
+                tin += vu["in"]
+                tout += vu["out"]
+                notes += [e for e in sorted(set(vu["errors"]))[:3] if e not in notes]
+                if rnd == 2 or any(x["match"] for x in v.values()) or vu["errors"]:
+                    break
+                # 1. turda eşleşme yok: daha önce bakılmayan anlardan yeni karelerle ikinci tur
+                extra = searchmod.expand(case_id, plan, opts.get("evidence_ids"), opts.get("roi_id"), 16, cands)
+                if not extra:
+                    break
+                notes.append(f"İlk turda eşleşme çıkmadı; arama genişletildi ({len(extra)} ek kare)")
+                pending = extra
+                cands = cands + extra
+        items = [c.to_dict() for c in cands]
+        for it in items:
+            if it["id"] in verdicts:
+                it["verdict"] = verdicts[it["id"]]
+        if not events_mode:
             items.sort(key=lambda i: (bool(i.get("verdict", {}).get("match")), i.get("verdict", {}).get("confidence", 0),
                                       i["score"]), reverse=True)
 
@@ -191,7 +263,8 @@ def query_job(ctx: jobs.JobContext, params: dict) -> dict:
                     video_notes.append(res)
 
         ctx.progress(0.94, "Cevap yazılıyor")
-        answer, c2 = _summary(q["question"], items, roles["planner"] if mode != "hizli" else None, case_id, qid)
+        answer, c2 = _summary(q["question"], items, roles["planner"] if mode != "hizli" else None, case_id, qid,
+                              notes, events_mode)
         cost += c2
         db.update("queries", qid, {
             "status": "tamamlandi", "results": dumps(items), "answer": answer, "cost": round(cost, 6),

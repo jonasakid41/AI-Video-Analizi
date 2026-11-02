@@ -70,6 +70,7 @@ export interface AnalysisStats {
   yuz_sayisi: number;
   kisi_kumesi: number;
   plakalar: string[];
+  hareket_ozeti?: Record<string, number>;
   yuz_tanima: boolean;
   plaka_okuma: boolean;
   gorsel_arama: boolean;
@@ -168,13 +169,29 @@ export interface DetectionRow {
   h: number;
 }
 
+export type MotionKind = "nesne" | "cevre" | "isik" | "parazit" | "belirsiz";
+
+export interface MotionEvent {
+  t0: number;
+  t1: number;
+  real_t0: string | null;
+  real_t1: string | null;
+  kind: MotionKind;
+  label: string;
+  detail: string;
+  ignorable: boolean;
+  tracks: number[];
+}
+
 export interface Activity {
   duration: number;
   buckets: number;
   activity: number[];
+  kinds?: (MotionKind | null)[];
   person: number[];
   vehicle: number[];
   segments: { kind: string; t0: number; t1: number }[];
+  events?: MotionEvent[];
 }
 
 export interface Face {

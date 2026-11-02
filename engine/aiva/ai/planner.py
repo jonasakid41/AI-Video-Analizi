@@ -48,6 +48,15 @@ def _hm(h: str, m: str | None) -> str | None:
     return f"{hh:02d}:{mm:02d}" if hh < 24 and mm < 60 else None
 
 
+TIME_WORDS = ("saat", "sabah", "öğle", "ögle", "ogle", "akşam", "aksam", "gece", "gündüz", "gunduz",
+              "dakika", "sabaha", "öğlen", "ikindi")
+
+
+def has_time_words(question: str) -> bool:
+    q = question.lower()
+    return bool(re.search(r"\d", q)) or any(w in q for w in TIME_WORDS)
+
+
 def _fmt_min(total: int) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
@@ -146,9 +155,10 @@ def plan(question: str, model: str | None, case_id: int | None, query_id: int | 
             if p.get("plate"):
                 p["plate"] = platemod.clean(p["plate"])
             local = local_plan(question)
-            # Model saat aralığını kaçırırsa yerel ayrıştırıcının bulduğunu kullan
+            # Model saat aralığını kaçırırsa yerel ayrıştırıcının bulduğunu kullan; soruda saat
+            # ifadesi yoksa modelin uydurduğu aralık yok sayılır (her şeyi eleyebiliyor)
             for k in ("time_from", "time_to"):
-                p[k] = p.get(k) or local.get(k)
+                p[k] = (p.get(k) or local.get(k)) if has_time_words(question) else None
             if not p.get("visual_query_en"):
                 p["visual_query_en"] = local["visual_query_en"]
             return p, {"cost": res["cost"], "in": res["usage"]["in"], "out": res["usage"]["out"]}

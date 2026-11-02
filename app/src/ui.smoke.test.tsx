@@ -13,7 +13,7 @@ const ev = {
   strategy: { name: "Doğrudan açma", denemeler: [{ strateji: "Doğrudan açma", basarili: true, cozulen_kare: 30, hata: "" }, { strateji: "Hata toleranslı", basarili: false, cozulen_kare: 0, hata: "x" }] },
   analysis_info: {
     donusturme: { container: "matroska", gaps: [], dropped: 0, keyframe_interval: 2, proxy: { mode: "kodlama", encoder: "h264_nvenc", encoder_label: "NVIDIA NVENC" }, sprite: { times: [1, 2], tile_w: 160, tile_h: 90, cols: 10, count: 2 } },
-    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
+    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, hareket_ozeti: { cevre: 4, nesne: 2 }, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
   },
   time: { kamera_saati_var: true, kaynak: "osd", duzeltme_farki_sn: -222, gunluk_kayma_sn: null, parca_sayisi: 2, bosluklar: [{ t: 18, jump: 600 }] },
   camera_start: "2026-10-28T14:33:42", real_start: "2026-10-28T14:30:00",
@@ -46,7 +46,9 @@ const fixtures: [RegExp, unknown][] = [
   [/^\/api\/cases\/1\/history$/, [{ id: 1, case_id: 1, evidence_id: 1, action: "video_eklendi", detail: { ad: "CH01.mp4" }, created_at: "2026-11-02T10:00:00+03:00" }]],
   [/^\/api\/cases\/1$/, { id: 1, name: "Otopark", description: "", created_at: "", updated_at: "", evidence_count: 1, finding_count: 1 }],
   [/^\/api\/cases$/, [{ id: 1, name: "Otopark", description: "açıklama", created_at: "", updated_at: "2026-11-02T10:00:00", evidence_count: 1, finding_count: 1 }]],
-  [/^\/api\/evidence\/1\/activity$/, { duration: 30, buckets: 4, activity: [0, 0.01, 0.02, 0], person: [0, 1, 1, 0], vehicle: [0, 0, 1, 0], segments: [{ kind: "aktif", t0: 2, t1: 10 }] }],
+  [/^\/api\/evidence\/1\/activity$/, { duration: 30, buckets: 4, activity: [0, 0.01, 0.02, 0], kinds: [null, "cevre", "nesne", null], person: [0, 1, 1, 0], vehicle: [0, 0, 1, 0], segments: [{ kind: "aktif", t0: 2, t1: 10 }],
+    events: [{ t0: 2, t1: 6, real_t0: null, real_t1: null, kind: "cevre", label: "ağaç/bitki/gölge (tekrarlayan)", detail: "", ignorable: true, tracks: [] },
+             { t0: 7, t1: 9, real_t0: null, real_t1: null, kind: "nesne", label: "1 kişi", detail: "kişi · üst: kırmızı", ignorable: false, tracks: [7] }] }],
   [/^\/api\/evidence\/1\/tracks$/, [track]],
   [/^\/api\/evidence\/1\/plates$/, [{ ...track, reads: [{ id: 1, t: 5, text: "34 ABC 123", raw: "34ABC123", conf: 0.9, valid_tr: 1, thumb: null }] }]],
   [/^\/api\/evidence\/1\/rois$/, [{ id: 2, evidence_id: 1, name: "Giriş kapısı", kind: "alan", points: [[0, 0], [1, 0], [1, 1]], created_at: "" }]],
@@ -109,6 +111,9 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText("Beyaz araç görünüyor.")).toBeTruthy();
     expect(screen.getByText("otomobil")).toBeTruthy(); // plan etiketi Türkçe
     expect(screen.getByText("Tüm kameralar — ortak zaman çizelgesi")).toBeTruthy();
+    expect(await screen.findByText("ağaç/bitki/gölge")).toBeTruthy(); // hareket türü açıklaması
+    fireEvent.click(screen.getByText("önemsiz hareketleri gizle"));
+    expect(screen.getByText("önemsiz hareketler gizli")).toBeTruthy();
     expect(await screen.findByText("Model karşılaştırması")).toBeTruthy();
     expect(screen.getByText("1 sonuç işaretli")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Doğru sonuç" })).toBeTruthy();
@@ -129,6 +134,7 @@ describe("arayüz duman testi", () => {
     go("Bilgi");
     expect(await screen.findByText("Denenen açma yöntemleri")).toBeTruthy();
     expect(screen.getByText(/NVIDIA NVENC/)).toBeTruthy();
+    expect(screen.getByText(/ağaç\/bitki\/gölge .*\(önemsiz\)/)).toBeTruthy();
   });
 
   it("ayarlar penceresi: tüm sekmeler", async () => {

@@ -217,6 +217,34 @@ def build_vehicle_video(path: Path, base_image: Path, plate: str = "34 ABC 123",
     return path
 
 
+def build_tree_video(path: Path, seconds: float = 20.0, fps: int = 10) -> Path:
+    """Rüzgârda sallanan "ağaç" (hep aynı yerde salınan yeşil şekil) + 8–13 sn arası dedektörün
+    tanımayacağı hareketli bir şekil. Beklenen: ağaç → çevresel (önemsiz), şekil → tanımlanamayan hareket."""
+    W, H = 640, 360
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with av.open(str(path), "w", format="mp4") as out:
+        st = out.add_stream("libx264", rate=fps)
+        st.width, st.height, st.pix_fmt = W, H, "yuv420p"
+        st.options = {"bf": "0"}
+        for i in range(int(seconds * fps)):
+            t = i / fps
+            img = np.full((H, W, 3), (200, 180, 150), np.uint8)              # açık gökyüzü
+            cv2.rectangle(img, (0, int(H * 0.65)), (W, H), (100, 100, 100), -1)
+            sway = int(14 * np.sin(2 * np.pi * t * 0.9))
+            cv2.ellipse(img, (110 + sway, 120), (60, 80), 0, 0, 360, (40, 140, 50), -1)
+            cv2.ellipse(img, (90 - sway, 90), (35, 45), 0, 0, 360, (30, 120, 40), -1)
+            cv2.rectangle(img, (104, 190), (118, 250), (40, 60, 90), -1)
+            if 8.0 <= t <= 13.0:
+                x = int(330 + (t - 8.0) / 5.0 * 250)
+                cv2.rectangle(img, (x, 200), (x + 30, 245), (200, 200, 60), -1)
+            img = cv2.add(img, np.random.default_rng(i).integers(0, 4, img.shape, dtype=np.uint8))
+            for pkt in st.encode(av.VideoFrame.from_ndarray(img, format="bgr24")):
+                out.mux(pkt)
+        for pkt in st.encode(None):
+            out.mux(pkt)
+    return path
+
+
 def build_osd_video(path: Path, osd_offset: float = 222.0, gap_at: float | None = 10.0,
                     gap_s: float = 600.0, seconds: float = 20.0) -> Scene:
     sc = Scene(seconds=seconds, osd_offset=osd_offset, gap_at=gap_at, gap_s=gap_s)

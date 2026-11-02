@@ -84,6 +84,15 @@ export const CLASS_TR: Record<string, string> = {
   "baseball bat": "sopa",
 };
 
+export const KIND_STYLE: Record<string, { color: string; name: string }> = {
+  nesne: { color: "#38bdf8", name: "kişi/araç" },
+  belirsiz: { color: "#fb923c", name: "tanımlanamayan" },
+  cevre: { color: "#6b9e78", name: "ağaç/bitki/gölge" },
+  isik: { color: "#d4a514", name: "ışık değişimi" },
+  parazit: { color: "#64748b", name: "yağmur/parazit" },
+};
+export const IGNORABLE_KINDS = ["cevre", "isik", "parazit"];
+
 export const TARGET_TR: Record<string, string> = { ust: "üst", alt: "alt", govde: "gövde", genel: "" };
 
 export function clsColor(cls: string | null | undefined): string {
