@@ -433,4 +433,8 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
                 plaka_sayisi=len(stats["plakalar"]))
     events.publish("analysis", evidence_id=eid)
     events.publish("evidence", evidence=evidence.public(evidence.require(eid)))
+    from .ai import scan as scanmod
+    if scanmod.auto_review_enabled():
+        # Yapay zekâ videonun tamamını izleyip not çıkarır; sorular önce bu notlarda aranır
+        jobs.submit("ai_review", {"evidence_id": eid}, case_id=ev["case_id"], evidence_id=eid)
     return stats

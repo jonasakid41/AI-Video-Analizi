@@ -1,5 +1,30 @@
 # Sürüm geçmişi
 
+## 0.1.6 — 2 Kasım 2026
+
+Yapay zekâ artık videonun tamamına bakıyor; CLI'da model seçilebiliyor ve varsayılan en güçlü model.
+
+- **Neden gerekliydi:** Önceden yapay zekâ yalnızca yerel analizin seçtiği adayları görüyordu: en fazla 40 kişi/araç kırpıntısı, birkaç benzer kare ve bulunamazsa 16–24 düzenli kare. Yerel dedektörün tanımadığı bir nesne (çanta, yerdeki eşya, belirli bir giysi, bir olay) modele hiç gösterilmiyordu. Videoyu doğrudan Claude'a vermek bu yüzden daha iyi sonuç veriyordu.
+- **Yüklemeden sonra yapay zekâ ön incelemesi:**
+  - Analizden sonra model videonun tamamını kare ızgaralarıyla izliyor; hareketli bölümler daha sık örnekleniyor.
+  - Model her kare için zaman damgalı Türkçe notlar yazıyor: kişiler, giysiler, araçlar, eylemler, dikkat çeken olaylar.
+  - Notlar Bilgi sekmesinde listeleniyor; tıklanınca o ana gidiliyor.
+  - CLI aboneliğinde otomatik başlıyor (ücretsiz); OpenRouter'da elle başlatılıyor (maliyet çıkarır).
+- **Sorularda yapay zekâ taraması:**
+  - Doğrulamalı ve Derin modda model önce ön inceleme notlarında arıyor. Not yoksa ya da yetersizse videonun tamamını kare ızgaralarıyla tarıyor.
+  - Bulduğu anlar tam çözünürlükte yeniden doğrulanıyor; yerel adaylar da eklenmeye devam ediyor.
+  - Soru bir nesne türü içermiyorsa doğrulama ilgisiz kişi kırpıntılarıyla dolmuyor.
+  - Yapay zekânın bulduğu anlar sonuç kartında işaretleniyor.
+- **CLI model seçimi:**
+  - Ayarlar'da her CLI aracı için model seçilebiliyor. Claude Code'da varsayılan Opus (en güçlü), tüm görevler için.
+  - Codex ve Gemini için model adı elle yazılabiliyor.
+- **Doğrulama:**
+  - Modele kullanıcının özgün sorusu her zaman gidiyor.
+  - Aday grupları aynı anda 3 çağrıyla doğrulanıyor.
+  - CLI'da tam kareler 1536 px'e kadar gönderiliyor.
+  - Bir grubun hatası diğer adayların doğrulanmasını durdurmuyor.
+- **Ayarlar:** Ayarlar > Yapay zekâ > "Yapay zekâ ile inceleme" bölümünde tarama açık/kapalı, ön incelemenin ne zaman yapılacağı, tarama ayrıntısı (görüntü başına 4/9/16 kare) ve soru başına en fazla taranacak kare sayısı ayarlanabiliyor.
+- **Gerçek deneme (Claude Code, Opus):** Yaya videosunda yerel dedektörün tanımadığı "çimendeki beyaz nesne" hem ön inceleme notlarıyla hem yalnızca taramayla bulundu (soru başına ~50 sn).
 ## 0.1.5 — 2 Kasım 2026
 
 Hikvision dışa aktarımlarının (IMKH başlıklı MPEG-PS, H.265 + G.711) dönüştürülememesi ve kayıtta görülen ufak bozulmalar düzeltildi.

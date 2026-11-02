@@ -86,13 +86,14 @@ Tüm fazlar (0–5) ilk sürüm olarak uygulandı; taşınabilir paket `dist/AIV
 - **0.1.2 ile eklenen motor testleri (toplam 95):**
   - Güncelleme: sahte GitHub ile sürüm denetimi, yönlendirmeli indirme, SHA-256 uyuşmazlığı, özeti olmayan paket, zararlı ZIP yolu, açılış temizliği.
   - Şemaya uymayan model planı ve doğrulama cevabının düzeltilmesi; eski kayıtların okunurken düzeltilmesi.
-- **0.1.3–0.1.5 ile eklenen motor testleri (toplam 113):**
+- **0.1.3–0.1.6 ile eklenen motor testleri (toplam 116):**
   - CLI araçları (sahte süreçle): Claude Code'a satır içi görüntü ve JSON şeması, .cmd kabuğu, Codex'e görüntü/şema dosyası, Gemini'ye @dosya, kullanım sınırı ve oturum hataları, çevrimdışı katalog, "Kullan".
   - Uzak kişiler: gerçek yaya videosu 1920×1080 tuvalde küçültülünce eski kurallarla 1 kısa iz, yeni kurallarla 19 iz (16'sı ≥3 kare) bulundu.
   - Siyah-beyaz/karanlık kayıt: renksiz oranı, tonla tarif, renk koşulunun adayları elememesi, modele verilen not.
   - Dedektörün tanımadığı hareketin doğrulama adayı olması.
   - AV1 videonun dönüştürülmesi; işçi süreç hatasının türü ve ayrıntısıyla taşınması.
   - Hikvision IMKH + MPEG-PS (H.265, G.711, bölünmüş PES): dönüştürme, eşit damgalarda kare atılmaması, kamera saatinin geri atlaması ve 33 bit sayaç taşması.
+  - Yapay zekâ taraması ve ön incelemesi: sahte model ızgara görüntülerini açıp kutunun göründüğü kareleri renginden bulur; tarama yerel analizin aday yapmadığı anı bulur, ön inceleme notları soruda kullanılır, "Neler oldu?" notları içerir.
 - **CLI (elle, gerçek Claude Code):** Siyah-beyaz gece kaydında "Kırmızı montlu biri geçti mi?" doğrulamalı modda yanıtlandı. 3 çağrı yapıldı, OpenRouter ücreti 0. Paketlenmiş uygulamada "Test et" 2,6 sn'de yanıt verdi.
 - **Arayüz (14 test):**
   - Tip kontrolü.

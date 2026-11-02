@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ import av
 import cv2
 import numpy as np
 
-from .. import evidence
+from .. import db, evidence
 from ..media import encoders, frames
 from . import catalog, client, prompts
 from .search import Candidate
@@ -19,6 +20,7 @@ from .search import Candidate
 CROP_MAX = 512
 CONTEXT_W = 640
 FRAME_MAX = 1024  # kutusuz (tam kare) adaylar: uzaktaki küçük kişiler küçültmede kaybolmasın
+WORKERS = 3       # aynı anda en fazla bu kadar doğrulama çağrısı
 
 
 def _crop(img: np.ndarray, box: list[float] | None, pad: float = 0.25) -> np.ndarray:
@@ -54,7 +56,7 @@ def _context(img: np.ndarray, box: list[float] | None) -> np.ndarray:
     return ctx
 
 
-def candidate_images(c: Candidate, with_context: bool) -> tuple[list[np.ndarray], np.ndarray | None]:
+def candidate_images(c: Candidate, with_context: bool, full: int = FRAME_MAX) -> tuple[list[np.ndarray], np.ndarray | None]:
     ev = evidence.require(c.evidence_id)
     src = evidence.evidence_file(ev)
     if src is None:
@@ -63,7 +65,7 @@ def candidate_images(c: Candidate, with_context: bool) -> tuple[list[np.ndarray]
     if got is None:
         return [], None
     _t, img = got
-    out = [_fit(_crop(img, c.box), CROP_MAX)] if c.box else [_fit(img, FRAME_MAX)]
+    out = [_fit(_crop(img, c.box), CROP_MAX)] if c.box else [_fit(img, full)]
     if with_context and c.box:
         out.append(_context(img, c.box))
     return out, img
@@ -113,16 +115,15 @@ def verdict(r: dict) -> dict:
             "plate": _scalar(r.get("plate")) or None}
 
 
-def verify(cands: list[Candidate], question: str, model: str, *, case_id: int, query_id: int,
-           batch: int = 8, with_context: bool = True, progress=None) -> tuple[dict[str, dict], dict]:
-    out: dict[str, dict] = {}
-    usage = {"cost": 0.0, "in": 0, "out": 0, "calls": 0, "errors": []}
-    for bi in range(0, len(cands), batch):
-        group = cands[bi:bi + batch]
+def _verify_group(group: list[Candidate], question: str, model: str, with_context: bool, case_id: int,
+                  query_id: int) -> tuple[list[Candidate], dict | None]:
+    try:
+        # CLI aboneliğinde maliyet yok: tam kareler daha yüksek çözünürlükte gönderilir
+        full = 1536 if model.startswith("cli:") else FRAME_MAX
         content: list[dict] = [{"type": "text", "text": f"Soru: {question}\n\nAşağıdaki {len(group)} adayı değerlendir."}]
         sent = []
         for c in group:
-            imgs, _full = candidate_images(c, with_context)
+            imgs, _full = candidate_images(c, with_context, full)
             if not imgs:
                 continue
             content.append({"type": "text", "text": label(c) + (" (yakın görüntü ve sahnenin tamamı)" if len(imgs) > 1 else "")})
@@ -130,28 +131,46 @@ def verify(cands: list[Candidate], question: str, model: str, *, case_id: int, q
                 content.append(client.image_part(frames.encode_jpeg(im, 86)))
             sent.append(c)
         if not sent:
-            continue
-        try:
-            res = client.chat(model, [{"role": "system", "content": prompts.VERIFY_SYSTEM},
-                                      {"role": "user", "content": content}],
-                              prompts.VERIFY_SCHEMA, role="dogrulayici", case_id=case_id, query_id=query_id,
-                              max_tokens=200 + 120 * len(sent))
-        except client.AIError as e:
-            usage["errors"].append(str(e))
-            if "anahtar" in str(e) or "bakiye" in str(e).lower():
-                break
-            continue
-        usage["cost"] += res["cost"]
-        usage["in"] += res["usage"]["in"]
-        usage["out"] += res["usage"]["out"]
-        usage["calls"] += 1
-        ids = {c.id for c in sent}
-        for r in _rows(res["parsed"]):
-            rid = str(r.get("id", "")).replace("Aday", "").strip()
-            if rid in ids:
-                out[rid] = verdict(r)
-        if progress:
-            progress(min(1.0, (bi + batch) / len(cands)))
+            return [], None
+        return sent, client.chat(model, [{"role": "system", "content": prompts.VERIFY_SYSTEM},
+                                         {"role": "user", "content": content}],
+                                 prompts.VERIFY_SCHEMA, role="dogrulayici", case_id=case_id, query_id=query_id,
+                                 max_tokens=200 + 120 * len(sent))
+    finally:
+        db.close_thread_connection()
+
+
+def verify(cands: list[Candidate], question: str, model: str, *, case_id: int, query_id: int,
+           batch: int = 8, with_context: bool = True, progress=None) -> tuple[dict[str, dict], dict]:
+    """Aday grupları aynı anda en fazla WORKERS model çağrısıyla doğrulanır."""
+    out: dict[str, dict] = {}
+    usage = {"cost": 0.0, "in": 0, "out": 0, "calls": 0, "errors": []}
+    groups = [cands[i:i + batch] for i in range(0, len(cands), batch)]
+    if not groups:
+        return out, usage
+    pool = ThreadPoolExecutor(max_workers=min(WORKERS, len(groups)), thread_name_prefix="aiva-verify")
+    try:
+        futs = [pool.submit(_verify_group, g, question, model, with_context, case_id, query_id) for g in groups]
+        for k, f in enumerate(as_completed(futs), start=1):
+            try:
+                sent, res = f.result()
+            except Exception as e:  # noqa: BLE001 — bir grubun hatası diğer adayların doğrulanmasını durdurmaz
+                usage["errors"].append(str(e) if isinstance(e, client.AIError) else f"Doğrulama hatası: {e}")
+                continue
+            if res is not None:
+                usage["cost"] += res["cost"]
+                usage["in"] += res["usage"]["in"]
+                usage["out"] += res["usage"]["out"]
+                usage["calls"] += 1
+                ids = {c.id for c in sent}
+                for r in _rows(res.get("parsed")):
+                    rid = str(r.get("id", "")).replace("Aday", "").strip()
+                    if rid in ids:
+                        out[rid] = verdict(r)
+            if progress:
+                progress(k / len(groups))
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return out, usage
 
 

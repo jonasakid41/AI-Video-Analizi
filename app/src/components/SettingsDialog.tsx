@@ -3,7 +3,7 @@ import { Check, FolderOpen, KeyRound, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, openFolder } from "../lib/api";
 import { qk, useCatalog, useCliTools, useSettings, useSystem } from "../lib/hooks";
-import type { EngineInfo, ModelInfo, Settings } from "../lib/types";
+import type { CliTool, EngineInfo, ModelInfo, Settings } from "../lib/types";
 import { toast, toastError, useUI } from "../store";
 import { Badge, Button, Field, inputCls, KV, Modal, Section, Spinner, Tabs, Toggle } from "./ui";
 import UpdateSection from "./UpdateSection";
@@ -67,6 +67,7 @@ function AiTab({ s, save }: { s: Settings; save: (p: Record<string, unknown>) =>
   return (
     <div className="space-y-6">
       <CliSection s={s} />
+      <AiUsageSection s={s} save={save} />
       <Section title="OpenRouter API anahtarı">
         {s.api_key_set ? (
           <div className="flex items-center gap-2">
@@ -168,32 +169,77 @@ function AiTab({ s, save }: { s: Settings; save: (p: Record<string, unknown>) =>
 
 type CliResult = { ok: boolean; seconds: number; text?: string; error?: string };
 
+/** Yapay zekânın videonun tamamına bakması: soru anında tarama ve yüklemeden sonra ön inceleme */
+function AiUsageSection({ s, save }: { s: Settings; save: (p: Record<string, unknown>) => Promise<void> }) {
+  const auto = s.ai.auto_review ?? "auto";
+  return (
+    <Section title="Yapay zekâ ile inceleme">
+      <Toggle
+        checked={s.ai.ai_scan ?? true}
+        onChange={(v) => save({ ai: { ai_scan: v } })}
+        label="Sorularda videonun tamamını yapay zekâya taratın"
+        hint="Model kaydın tamamını kare ızgaralarıyla tarar ve bulduğu anları tam çözünürlükte doğrular. Böylece yerel analizin tanımadığı nesne ve olaylar da bulunur. Plaka ve çizilen alan sorularında yerel yöntem kullanılır."
+      />
+      <Field
+        label="Yüklemeden sonra yapay zekâ ön incelemesi"
+        hint="Model videonun tamamını izleyip zaman damgalı notlar çıkarır; sorular önce bu notlarda aranır. Otomatik: CLI aboneliğinde açık, OpenRouter'da kapalı (maliyet çıkarır)."
+      >
+        <select
+          value={String(auto)}
+          onChange={(e) => save({ ai: { auto_review: e.target.value === "auto" ? "auto" : e.target.value === "true" } })}
+          className={`${inputCls} cursor-pointer`}
+        >
+          <option value="auto">Otomatik</option>
+          <option value="true">Her zaman</option>
+          <option value="false">Kapalı (Bilgi sekmesinden elle başlatılır)</option>
+        </select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Tarama ayrıntısı">
+          <select value={s.ai.scan_grid ?? 3} onChange={(e) => save({ ai: { scan_grid: Number(e.target.value) } })} className={`${inputCls} cursor-pointer`}>
+            <option value={2}>Ayrıntılı (görüntü başına 4 kare)</option>
+            <option value={3}>Dengeli (9 kare)</option>
+            <option value={4}>Hızlı (16 kare)</option>
+          </select>
+        </Field>
+        <Field label="Soru başına en fazla taranacak kare">
+          <input type="number" min={24} max={2000} className={inputCls} defaultValue={s.ai.scan_max_frames ?? 240} onBlur={(e) => save({ ai: { scan_max_frames: Number(e.target.value) } })} />
+        </Field>
+      </div>
+    </Section>
+  );
+}
+
 /** Claude Code / Codex / Gemini CLI: kullanıcının aboneliğiyle oturum açtığı yerel araçlar */
 function CliSection({ s }: { s: Settings }) {
   const qc = useQueryClient();
   const { data: tools, isFetching } = useCliTools();
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, CliResult>>({});
+  const [models, setModels] = useState<Record<string, string>>({});
   const active = s.ai_source === "cli" ? s.ai.roles.verifier.split(":")[1] : null;
+  const activeModel = s.ai_source === "cli" ? s.ai.roles.verifier.split(":")[2] ?? "" : "";
+  // Seçili araçta kullanılan model, değilse aracın listesindeki ilk (en güçlü) model
+  const modelOf = (t: CliTool) => models[t.tool] ?? (active === t.tool ? activeModel : t.models[0]?.id.split(":")[2] ?? "");
 
   const rescan = () => {
     qc.invalidateQueries({ queryKey: ["cli"] });
     qc.invalidateQueries({ queryKey: qk.catalog });
     qc.invalidateQueries({ queryKey: qk.settings });
   };
-  const use = async (tool: string, label: string) => {
+  const use = async (tool: string, label: string, model: string) => {
     try {
-      qc.setQueryData(qk.settings, await api.post<Settings>("/api/ai/cli/use", { tool }));
+      qc.setQueryData(qk.settings, await api.post<Settings>("/api/ai/cli/use", { tool, model }));
       qc.invalidateQueries({ queryKey: qk.catalog });
-      toast(`Tüm görevler artık ${label} ile yapılacak`, "ok");
+      toast(`Tüm görevler artık ${label}${model ? ` (${model})` : ""} ile yapılacak`, "ok");
     } catch (e) {
       toastError(e);
     }
   };
-  const test = async (tool: string) => {
+  const test = async (tool: string, model: string) => {
     setTesting(tool);
     try {
-      const r = await api.post<CliResult>("/api/ai/cli/test", { tool });
+      const r = await api.post<CliResult>("/api/ai/cli/test", { tool, model });
       setResults((old) => ({ ...old, [tool]: r }));
     } catch (e) {
       toastError(e);
@@ -235,12 +281,40 @@ function CliSection({ s }: { s: Settings }) {
                 </div>
                 {t.found && (
                   <>
-                    <Button size="sm" variant="subtle" busy={testing === t.tool} onClick={() => test(t.tool)}>
+                    {t.models.length > 1 || !t.experimental ? (
+                      <select
+                        aria-label={`${t.label} modeli`}
+                        value={modelOf(t)}
+                        onChange={(e) => setModels((old) => ({ ...old, [t.tool]: e.target.value }))}
+                        className="h-7 rounded-md border border-line-2 bg-panel-2 px-1.5 text-[12px] cursor-pointer"
+                      >
+                        {t.models.map((m) => (
+                          <option key={m.id} value={m.id.split(":")[2] ?? ""}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        aria-label={`${t.label} modeli`}
+                        className={`${inputCls} h-7 w-36 text-[12px]`}
+                        placeholder="model (boş: varsayılan)"
+                        value={modelOf(t)}
+                        onChange={(e) => setModels((old) => ({ ...old, [t.tool]: e.target.value.trim() }))}
+                      />
+                    )}
+                    <Button size="sm" variant="subtle" busy={testing === t.tool} onClick={() => test(t.tool, modelOf(t))}>
                       Test et
                     </Button>
-                    <Button size="sm" variant={active === t.tool ? "default" : "primary"} disabled={active === t.tool} onClick={() => use(t.tool, t.label)}>
-                      {active === t.tool ? "Seçili" : "Kullan"}
-                    </Button>
+                    {active === t.tool && modelOf(t) === activeModel ? (
+                      <Button size="sm" variant="default" disabled>
+                        Seçili
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="primary" onClick={() => use(t.tool, t.label, modelOf(t))}>
+                        {active === t.tool ? "Modeli değiştir" : "Kullan"}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>

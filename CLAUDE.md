@@ -37,6 +37,10 @@ engine\.venv\Scripts\python scripts\build_release.py     # dist\AIVideoAnalizi (
   - Kimlik biçimi `cli:<araç>:<model>` (`aiva/ai/cli.py`). `client.chat`, `catalog.get` ve `client.configured(model)` bu öneki tanır.
   - Claude Code etkileşimsiz çalışır: `--tools ""` ve `--setting-sources project,local`; görüntüler stream-json ile gider. `--bare` kullanılmamalı, çünkü abonelik oturumunu (OAuth) okumaz.
   - Testlerde gerçek CLI çağrılmamalı; `cli.find` ve `cli._run` sahtelenmeli.
+- **Yapay zekâ kapsamı (`aiva/ai/scan.py`):**
+  - Model yalnızca yerel adayları görmemeli. Ön inceleme (`ai_review` işi) notları `ai_notes` tablosuna yazar.
+  - Sorular önce notlarda aranır (`from_notes`), gerekirse kare ızgaraları taranır (`scan`). Bulunan anlar `verify` ile tam çözünürlükte doğrulanır.
+  - Izgara karelerinin numarası sarı etiketle yazılır; model numaraları bu etiketlerden okur.
 - **Görüntü uyarlamaları:**
   - Yüksek çözünürlükte hareket 640 px'te ölçülür (`motion.meter_width`).
   - Süren küçük lekeler bölümü aktif sayar (`MIN_BLOB_PX`). Açıklanamayan hareket bölgesi yakınlaştırılarak yeniden taranır (`analysis._zoom_detect`).

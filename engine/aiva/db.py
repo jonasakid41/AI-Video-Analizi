@@ -168,7 +168,23 @@ SCHEMA_V3 = """
 ALTER TABLE activity ADD COLUMN kind TEXT;
 """
 
-MIGRATIONS: list[str] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3]
+# Yapay zekâ ön incelemesi: videonun tamamından alınan karelere modelin yazdığı zaman damgalı notlar
+SCHEMA_V4 = """
+CREATE TABLE ai_notes(
+  id INTEGER PRIMARY KEY,
+  evidence_id INTEGER NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  t REAL NOT NULL,
+  text TEXT NOT NULL,
+  notable INTEGER NOT NULL DEFAULT 0,
+  people INTEGER,
+  vehicles INTEGER,
+  model TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX ix_ai_notes_ev ON ai_notes(evidence_id, t);
+"""
+
+MIGRATIONS: list[str] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4]
 
 
 def init(path: Path | None = None) -> Path:

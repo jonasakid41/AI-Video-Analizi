@@ -115,7 +115,11 @@ def test_cli_models_in_catalog_and_settings(api_client, monkeypatch):
     s = api.get("/api/settings").json()
     assert not s["ai_ready"]  # anahtar yok, OpenRouter modeli seçili
     s = api.post("/api/ai/cli/use", json={"tool": "claude"}).json()
-    assert s["ai"]["roles"]["verifier"] == "cli:claude:sonnet" and s["ai_ready"] and s["ai_source"] == "cli"
+    # Varsayılan: aracın en güçlü modeli tüm görevlerde
+    assert set(s["ai"]["roles"].values()) == {"cli:claude:opus"} and s["ai_ready"] and s["ai_source"] == "cli"
+    s = api.post("/api/ai/cli/use", json={"tool": "claude", "model": "sonnet"}).json()
+    assert s["ai"]["roles"]["verifier"] == "cli:claude:sonnet"
+    assert api.post("/api/ai/cli/use", json={"tool": "claude", "model": "x; rm"}).status_code == 422
     assert client.configured("cli:claude:sonnet") and not client.configured("cli:codex:")
     st = api.get("/api/ai/cli").json()
     assert [t["tool"] for t in st if t["found"]] == ["claude"] and st[0]["version"].startswith("2.1")

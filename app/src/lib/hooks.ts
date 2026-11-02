@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, refresh, wsUrl } from "./api";
 import { Mapping } from "./time";
 import type {
-  Activity, Case, Catalog, CliTool, DetectionRow, Evaluation, Evidence, Face, Finding, HistoryRow, Job, Person, QueryRow, Roi, Settings,
+  Activity, AiNote, Case, Catalog, CliTool, DetectionRow, Evaluation, Evidence, Face, Finding, HistoryRow, Job, Person, QueryRow, Roi, Settings,
   SystemInfo, TimeMappingData, Track, UpdateStatus,
 } from "./types";
 
@@ -68,6 +68,8 @@ export const useQueryRow = (id: number | null) =>
   useQuery({ queryKey: qk.query(id ?? 0), queryFn: () => api.get<QueryRow>(`/api/queries/${id}`), enabled: !!id });
 export const useEvaluations = (queryId: number | null) =>
   useQuery({ queryKey: ["evals", queryId ?? 0], queryFn: () => api.get<Evaluation[]>(`/api/queries/${queryId}/evaluations`), enabled: !!queryId });
+export const useAiNotes = (eid: number | null) =>
+  useQuery({ queryKey: ["ai_notes", eid ?? 0], queryFn: () => api.get<AiNote[]>(`/api/evidence/${eid}/ai-notes`), enabled: !!eid });
 export const useHistory = (caseId: number | null) =>
   useQuery({ queryKey: qk.history(caseId ?? 0), queryFn: () => api.get<HistoryRow[]>(`/api/cases/${caseId}/history`), enabled: !!caseId });
 export const useTimeInfo = (eid: number | null) =>
@@ -136,6 +138,9 @@ function invalidateForJob(qc: QueryClient, j: Job) {
       break;
     case "guncelleme":
       inv(qk.update);
+      break;
+    case "ai_review":
+      inv(["ai_notes", eid]);
       break;
   }
   inv(qk.history(cid));

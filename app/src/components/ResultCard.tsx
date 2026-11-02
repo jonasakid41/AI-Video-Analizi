@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Bookmark, CheckCircle2, CircleSlash, Crosshair, Film } from "lucide-react";
+import { Bookmark, CheckCircle2, CircleSlash, Crosshair, Film, Sparkles } from "lucide-react";
 import { api, fileUrl, frameUrl } from "../lib/api";
 import { fmtPct } from "../lib/format";
 import { qk } from "../lib/hooks";
@@ -14,6 +14,8 @@ export default function ResultCard({ r, caseId, label, onLabel }: { r: ResultIte
   const v = r.verdict;
   const img = r.thumb ? fileUrl(r.thumb) : frameUrl(r.evidence_id, r.t, 320, null);
   const when = r.real_t ? fmtIso(r.real_t) : `${fmtMedia(r.t)} (video içi)`;
+  // Yerel adayla çakışan yapay zekâ bulgusu: gerekçesi kartta görünsün (yapay zekâ adaylarında zaten başlıkta)
+  const aiReason = r.cls_tr?.startsWith("yapay zekâ") ? null : r.reasons?.find((x) => x.startsWith("yapay zekâ"));
 
   const addFinding = async () => {
     try {
@@ -69,6 +71,12 @@ export default function ResultCard({ r, caseId, label, onLabel }: { r: ResultIte
           {r.cls_tr && ` · ${r.cls_tr}`}
           {r.color_text && ` · ${r.color_text}`}
         </div>
+        {aiReason && (
+          <div className="flex items-center gap-1 truncate text-[11.5px] text-accent" title={aiReason}>
+            <Sparkles className="size-3 shrink-0" />
+            {aiReason}
+          </div>
+        )}
         {(v?.plate || r.plate) && <div className="font-mono text-[12px] text-warn">{v?.plate || r.plate}</div>}
         {v?.explanation && <div className="mt-0.5 line-clamp-3 text-[12px] leading-snug">{v.explanation}</div>}
         {r.video_analysis?.text && (

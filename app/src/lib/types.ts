@@ -362,6 +362,16 @@ export interface ModelInfo {
   cli?: boolean; // bilgisayardaki CLI aracı (abonelik): video yerine kareler gönderilir
 }
 
+export interface AiNote {
+  id: number;
+  t: number;
+  real_t: string | null;
+  text: string;
+  notable: boolean;
+  people: number | null;
+  vehicles: number | null;
+}
+
 export interface CliTool {
   tool: "claude" | "codex" | "gemini";
   label: string;
@@ -396,6 +406,11 @@ export interface Settings {
     budget_per_query_usd: number;
     send_context_frame: boolean;
     timeout_s: number;
+    ai_scan?: boolean; // sorularda videonun tamamı kare ızgaralarıyla yapay zekâya taratılır
+    auto_review?: boolean | "auto"; // yüklemeden sonra ön inceleme ("auto": CLI'da açık)
+    scan_grid?: number;
+    scan_max_frames?: number;
+    review_max_frames?: number;
   };
   analysis: {
     auto_analyze: boolean;

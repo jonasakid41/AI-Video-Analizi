@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import enhance, evaluate, evidence, export, jobs, query, settings
-from ..ai import catalog, cli
+from ..ai import catalog, cli, scan
 
 router = APIRouter(prefix="/api")
 
@@ -41,8 +41,29 @@ def cli_use(body: CliIn) -> dict:
     """Tüm görevleri seçilen CLI aracına geçirir (soru çözümleme, kare doğrulama, video)."""
     if not cli.available(body.tool):
         raise HTTPException(400, f"{cli.TOOLS[body.tool]['label']} bu bilgisayarda bulunamadı")
-    roles = {k: cli.model_id(body.tool, v) for k, v in cli.TOOLS[body.tool]["roles"].items()}
+    # Model seçilmediyse aracın en güçlü modeli (Claude: Opus) tüm görevlere atanır
+    roles = {k: cli.model_id(body.tool, body.model or v) for k, v in cli.TOOLS[body.tool]["roles"].items()}
     return settings.public(settings.update({"ai": {"roles": roles, "profile": "cli"}}))
+
+
+# --- yapay zekâ ön incelemesi ----------------------------------------------------------------
+
+@router.get("/evidence/{evidence_id}/ai-notes")
+def ai_notes(evidence_id: int) -> list[dict]:
+    evidence.require(evidence_id)
+    return scan.notes(evidence_id)
+
+
+@router.post("/evidence/{evidence_id}/ai-review")
+def ai_review(evidence_id: int) -> dict:
+    ev = evidence.require(evidence_id)
+    if ev["status"] != "hazir":
+        raise HTTPException(400, "Video henüz hazır değil")
+    running = [j for j in jobs.list_jobs(active_only=True) if j["kind"] == "ai_review" and j["evidence_id"] == evidence_id]
+    if running:
+        return {"job_id": running[0]["id"]}
+    return {"job_id": jobs.submit("ai_review", {"evidence_id": evidence_id}, case_id=ev["case_id"],
+                                  evidence_id=evidence_id)}
 
 
 # --- sorular -------------------------------------------------------------------------

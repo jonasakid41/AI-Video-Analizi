@@ -97,3 +97,74 @@ VERIFY_SCHEMA = {
     },
     "required": ["results"],
 }
+
+# --- yapay zekâ taraması ve ön inceleme (kare ızgaraları) -------------------------------------
+
+SHEET_INTRO = """Görüntüler bir güvenlik kamerası videosundan zaman sırasıyla alınmış karelerin ızgaralarıdır.
+Her karenin sol üst köşesinde sarı kutuda NUMARASI, alt kenarında SAATİ yazar. Kare numaralarını
+yalnızca bu sarı etiketlerden oku."""
+
+SCAN_SYSTEM = SHEET_INTRO + """
+Görevin: kullanıcının sorusuna uyan ya da uyma ihtimali olan TÜM kareleri bulmak.
+- Küçük, uzak, karanlık, bulanık ya da kısmen görünen kişi/nesneleri de dikkatle ara.
+- Emin değilsen düşük güvenle (0.2–0.5) listele: kaçırmak, fazla işaretlemekten daha kötüdür;
+  işaretlediğin kareler sonra tam çözünürlükte yeniden incelenecek.
+- Soru bir olay/eylem soruyorsa olayın başladığı ve en iyi göründüğü kareleri seç.
+- Hiçbir kare uymuyorsa boş liste ver. note: Türkçe, en fazla bir kısa cümle (ne gördüğün, nerede).
+"""
+
+SCAN_SCHEMA = {
+    "title": "tarama",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "hits": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"tile": {"type": "integer"}, "confidence": {"type": "number"}, "note": {"type": "string"}},
+            "required": ["tile", "confidence", "note"]}},
+    },
+    "required": ["hits"],
+}
+
+REVIEW_SYSTEM = SHEET_INTRO + """
+Görevin: videoyu bir analist gibi izleyip HER KARE için kısa bir Türkçe not yazmak. Bu notlar daha
+sonra soru aramalarında kullanılacak; ayrıntı önemlidir.
+- Kişiler: sayı, giysi rengi ve türü (mont, şapka, çanta…), ne yaptığı, nereye gittiği.
+- Araçlar: tür, renk, hareket (giriyor/çıkıyor/park), okunabiliyorsa plaka.
+- Dikkat çeken nesne ya da olay (bırakılan eşya, kavga, düşme, kapı açılması, ışık, duman…).
+- Önemli bir şey yoksa yalnızca "değişiklik yok" yaz. Görmediğini uydurma.
+- notable=true: kişi/araç görünmesi, giriş-çıkış ya da olağandışı bir olay.
+"""
+
+REVIEW_SCHEMA = {
+    "title": "inceleme",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "tiles": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"tile": {"type": "integer"}, "text": {"type": "string"}, "notable": {"type": "boolean"},
+                           "people": {"type": "integer"}, "vehicles": {"type": "integer"}},
+            "required": ["tile", "text", "notable", "people", "vehicles"]}},
+    },
+    "required": ["tiles"],
+}
+
+NOTES_SYSTEM = """Sen bir güvenlik kamerası inceleme asistanısın. Sana videoların yapay zekâ tarafından
+önceden çıkarılmış zaman damgalı notları verilecek (her satır: kimlik | kamera | saat | not).
+Kullanıcının sorusuyla ilgili olabilecek TÜM notların kimliklerini seç. Eş anlamlıları ve dolaylı
+anlatımları da düşün (ör. "çanta" ↔ "sırt çantası", "araba" ↔ "otomobil/araç"). Seçtiğin anlar
+tam çözünürlükte yeniden incelenecek; emin değilsen düşük güvenle seç. note: neden seçtiğin (kısa)."""
+
+NOTES_SCHEMA = {
+    "title": "not_secimi",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "hits": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"id": {"type": "string"}, "confidence": {"type": "number"}, "note": {"type": "string"}},
+            "required": ["id", "confidence", "note"]}},
+    },
+    "required": ["hits"],
+}

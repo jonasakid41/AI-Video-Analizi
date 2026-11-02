@@ -37,6 +37,7 @@ export const JOB_LABELS: Record<string, string> = {
   report: "Rapor",
   evaluate: "Model karşılaştırma",
   guncelleme: "Güncelleme indirme",
+  ai_review: "Yapay zekâ incelemesi",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

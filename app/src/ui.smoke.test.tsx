@@ -21,7 +21,7 @@ const ev = {
 };
 const track = { id: 7, evidence_id: 1, cls: "car", cls_tr: "otomobil", t0: 2, t1: 8, real_t0: "2026-10-28T14:30:02", real_t1: "2026-10-28T14:30:08", n: 10, conf: 0.9, thumb: "cases/1/t.jpg", colors: { govde: [["beyaz", 0.8]] }, color_text: "beyaz", plate: "34 ABC 123", plate_conf: 0.95, face_count: 0, reads: [] };
 const face = { id: 3, evidence_id: 1, track_id: 5, t: 4, real_t: "2026-10-28T14:30:04", score: 0.9, quality: 0.8, thumb: "f.jpg", cluster: 0, box: [0.1, 0.1, 0.1, 0.1] };
-const result = { id: "i7", kind: "iz", evidence_id: 1, t: 5, box: [0.1, 0.2, 0.3, 0.3], score: 2, track_id: 7, t0: 2, t1: 8, cls: "car", cls_tr: "otomobil", thumb: "t.jpg", real_t: "2026-10-28T14:30:05", camera: "Kamera 1", video: "CH01.mp4", color_text: "beyaz", plate: "34 ABC 123", reasons: [], verdict: { match: true, confidence: 0.9, explanation: "Beyaz araç görünüyor.", plate: "34 ABC 123" } };
+const result = { id: "i7", kind: "iz", evidence_id: 1, t: 5, box: [0.1, 0.2, 0.3, 0.3], score: 2, track_id: 7, t0: 2, t1: 8, cls: "car", cls_tr: "otomobil", thumb: "t.jpg", real_t: "2026-10-28T14:30:05", camera: "Kamera 1", video: "CH01.mp4", color_text: "beyaz", plate: "34 ABC 123", reasons: ["yapay zekâ notu: Beyaz bir otomobil park alanına giriyor", "otomobil"], verdict: { match: true, confidence: 0.9, explanation: "Beyaz araç görünüyor.", plate: "34 ABC 123" } };
 const settings = {
   notice_accepted: true,
   ai: { base_url: "https://openrouter.ai/api/v1", profile: "dengeli", roles: { planner: "a/b", verifier: "c/d", video: "e/f" }, data_collection_deny: true, zdr: false, max_candidates: 40, batch_size: 8, budget_per_query_usd: 0.5, send_context_frame: true, timeout_s: 120 },
@@ -59,8 +59,13 @@ const fixtures: [RegExp, unknown][] = [
   [/^\/api\/system$/, { version: "0.1.0", data_dir: "C:\\data", models_dir: "C:\\models", frozen: true, encoders: [{ name: "h264_nvenc", label: "NVIDIA NVENC", ok: true }], encoder: "h264_nvenc", inference: { onnxruntime: "1.24", providers: ["DmlExecutionProvider"], gpu: true, label: "GPU (DirectML)" }, models: [{ key: "yolox_s", label: "Nesne tespiti", license: "Apache-2.0", ok: true, size_mb: 36 }] }],
   [/^\/api\/models$/, { models: [{ id: "c/d", name: "Model D", description: "", context: 1000, input: ["text", "image"], image: true, video: false, structured: true, free: false, price_in_m: 0.3, price_out_m: 1.2 }, { id: "e/f", name: "Video F", description: "", context: 1000, input: ["video", "image"], image: true, video: true, structured: true, free: true, price_in_m: 0, price_out_m: 0 }], total: 2, image_count: 2, video_count: 1, free_vision: 1, fetched_at: "2026-11-02 10:00" }],
   [/^\/api\/power$/, { on_battery: true, percent: 64 }],
-  [/^\/api\/ai\/cli$/, [{ tool: "claude", label: "Claude Code", path: "C:\\Users\\x\\.local\\bin\\claude.exe", found: true, version: "2.1.282 (Claude Code)", experimental: false, login: "claude", models: [] },
+  [/^\/api\/ai\/cli$/, [{ tool: "claude", label: "Claude Code", path: "C:\\Users\\x\\.local\\bin\\claude.exe", found: true, version: "2.1.282 (Claude Code)", experimental: false, login: "claude",
+    models: [{ id: "cli:claude:opus", name: "Opus (en güçlü)" }, { id: "cli:claude:sonnet", name: "Sonnet (dengeli)" }, { id: "cli:claude:haiku", name: "Haiku (hızlı)" }] },
     { tool: "codex", label: "OpenAI Codex CLI", path: null, found: false, version: null, experimental: true, login: "codex login", models: [] }]],
+  [/^\/api\/evidence\/1\/ai-notes$/, [
+    { id: 1, t: 5, real_t: "2026-10-28T14:30:05", text: "Beyaz bir otomobil park alanına giriyor", notable: true, people: 0, vehicles: 1 },
+    { id: 2, t: 9, real_t: "2026-10-28T14:30:09", text: "değişiklik yok", notable: false, people: 0, vehicles: 1 },
+  ]],
   [/^\/api\/update$/, { current: "0.1.2", can_apply: true, reason: null, check_on_start: false, last_check: "2026-11-02T10:00:00", staged: null, result: null,
     latest: { current: "0.1.2", latest: "0.2.0", newer: true, title: "AI Video Analizi v0.2.0", notes: "## Yenilikler\n**Hızlı** arama", published_at: "2026-11-02T10:00:00Z", page: null, checked_at: "", asset: { name: "AIVideoAnalizi-0.2.0-win64.zip", size: 600 * 2 ** 20, url: "u", sha256: "ab" } } }],
   // Eski sürümün kaydettiği, şemaya uymayan model planı (classes/colors yok)
@@ -117,6 +122,7 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText("CH01_20261028143000.mp4")).toBeTruthy();
     expect(await screen.findByText("Beyaz araç geçti mi?")).toBeTruthy();
     expect(await screen.findByText("Beyaz araç görünüyor.")).toBeTruthy();
+    expect(screen.getByText(/yapay zekâ notu: Beyaz bir otomobil/)).toBeTruthy(); // yapay zekânın bulduğu an
     expect(screen.getByText("otomobil")).toBeTruthy(); // plan etiketi Türkçe
     expect(screen.getByText("Tüm kameralar — ortak zaman çizelgesi")).toBeTruthy();
     expect(await screen.findByText("ağaç/bitki/gölge")).toBeTruthy(); // hareket türü açıklaması
@@ -142,6 +148,9 @@ describe("arayüz duman testi", () => {
     expect(screen.getByText(/−3 dk 42 sn/)).toBeTruthy();
     go("Bilgi");
     expect(await screen.findByText("Denenen açma yöntemleri")).toBeTruthy();
+    expect(await screen.findByText("Beyaz bir otomobil park alanına giriyor")).toBeTruthy(); // ön inceleme notu
+    expect(screen.queryByText("değişiklik yok")).toBeNull(); // önemsiz notlar varsayılan olarak gizli
+    expect(screen.getByRole("button", { name: "Yeniden incele" })).toBeTruthy();
     expect(screen.getByText(/NVIDIA NVENC/)).toBeTruthy();
     expect(screen.getByText(/ağaç\/bitki\/gölge .*\(önemsiz\)/)).toBeTruthy();
     expect(screen.getByText(/siyah-beyaz \(gece\/IR\).*yakınlaştırmayla 12 ek tespit/)).toBeTruthy();
@@ -151,6 +160,9 @@ describe("arayüz duman testi", () => {
     const { default: SettingsDialog } = await import("./components/SettingsDialog");
     wrap(<SettingsDialog open onClose={() => {}} info={{ ready: true, port: 1, token: "x", data_dir: "C:\\data", portable: true, error: null }} />);
     expect(await screen.findByText("OpenRouter API anahtarı")).toBeTruthy();
+    expect(screen.getByText("Sorularda videonun tamamını yapay zekâya taratın")).toBeTruthy();
+    const pick = (await screen.findByRole("combobox", { name: "Claude Code modeli" })) as HTMLSelectElement;
+    expect(pick.value).toBe("opus"); // varsayılan: en güçlü model
     expect(await screen.findByText("Claude Code")).toBeTruthy(); // bilgisayardaki CLI aracı
     expect(screen.getByRole("button", { name: "Kullan" })).toBeTruthy();
     expect(screen.getByText(/Kurulu değil.*codex login/)).toBeTruthy();

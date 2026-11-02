@@ -27,8 +27,8 @@ CREATE_NO_WINDOW = 0x0800_0000
 
 TOOLS: dict[str, dict[str, Any]] = {
     "claude": {"label": "Claude Code", "exe": "claude", "login": "claude", "experimental": False,
-               "models": [("sonnet", "Sonnet"), ("haiku", "Haiku (hızlı)"), ("opus", "Opus (en güçlü)")],
-               "roles": {"planner": "haiku", "verifier": "sonnet", "video": "sonnet"}},
+               "models": [("opus", "Opus (en güçlü)"), ("sonnet", "Sonnet (dengeli)"), ("haiku", "Haiku (hızlı)")],
+               "roles": {"planner": "opus", "verifier": "opus", "video": "opus"}},
     "codex": {"label": "OpenAI Codex CLI", "exe": "codex", "login": "codex login", "experimental": True,
               "models": [("", "varsayılan model")], "roles": {"planner": "", "verifier": "", "video": ""}},
     "gemini": {"label": "Gemini CLI", "exe": "gemini", "login": "gemini", "experimental": True,

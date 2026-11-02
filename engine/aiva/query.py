@@ -74,9 +74,17 @@ def estimate(case_id: int, question: str, options: dict) -> dict:
                                   int(options.get("max_candidates") or s["max_candidates"]))
     mode = options.get("mode") or "dogrula"
     cost = 0.0
-    if mode != "hizli" and cands:
+    scan_on = mode != "hizli" and s.get("ai_scan", True) and not plan.get("plate") and not options.get("roi_id")
+    if mode != "hizli" and (cands or scan_on):
+        from .ai import scan as scanmod
         cost += catalog.estimate(s["roles"]["planner"], 700, [], 300)
-        cost += verifymod.estimate(s["roles"]["verifier"], cands, s["send_context_frame"], int(s["batch_size"]))
+        extra = 0
+        if scan_on:
+            cost += scanmod.estimate(case_id, plan, s["roles"]["verifier"], options.get("evidence_ids"),
+                                     int(s.get("scan_grid", 3)), int(s.get("scan_max_frames", 240)))
+            extra = scanmod.TOP_HITS // 2  # taramanın bulacağı anlar da doğrulanır (tahmini)
+        cost += verifymod.estimate(s["roles"]["verifier"], list(cands) + [None] * extra, s["send_context_frame"],
+                                   int(s["batch_size"]))
         if mode == "derin":
             cost += 3 * catalog.estimate(s["roles"]["video"], 25000, [], 400)
     free = all((catalog.get(s["roles"][r]) or {}).get("free") for r in ("planner", "verifier"))
@@ -98,11 +106,32 @@ def _event_lines(items: list[dict], limit: int = 25) -> list[str]:
     return lines
 
 
+def _ai_note_lines(case_id: int, plan: dict, evidence_ids: list[int] | None, limit: int = 60) -> list[str]:
+    """Ön incelemenin önemli notları (saat sırasıyla), "Neler oldu?" cevabını zenginleştirmek için."""
+    out: list[tuple[str, str]] = []
+    for ev in db.rows("SELECT * FROM evidence WHERE case_id = ? AND status = 'hazir'", (case_id,)):
+        if evidence_ids and ev["id"] not in evidence_ids:
+            continue
+        m = evidence.get_mapping(ev["id"])
+        windows, _ = searchmod.media_windows(m, ev["duration"] or 0.0, plan.get("time_from"), plan.get("time_to"))
+        for r in db.rows("SELECT t, text FROM ai_notes WHERE evidence_id = ? AND notable = 1 ORDER BY t", (ev["id"],)):
+            if any(a <= r["t"] <= b for a, b in windows):
+                rt = m.to_real(r["t"])
+                key = rt.isoformat() if rt else f"{r['t']:012.3f}"
+                when = _tr_dt(rt.isoformat(timespec="seconds")) if rt else f"{r['t']:.0f}. sn"
+                out.append((key, f"• {when} · {ev['camera'] or ev['original_name']}: {r['text']}"))
+    out.sort()
+    return [line for _k, line in out[:limit]]
+
+
 def _summary(question: str, items: list[dict], model: str | None, case_id: int, qid: int,
-             notes: list[str] | None = None, events_mode: bool = False) -> tuple[str, float]:
+             notes: list[str] | None = None, events_mode: bool = False,
+             ai_lines: list[str] | None = None) -> tuple[str, float]:
     notes = notes or []
     if events_mode and items:
         local = "Önemli olaylar (zaman sırasıyla):\n" + "\n".join(_event_lines(items))
+        if ai_lines:
+            local += "\n\nYapay zekâ ön inceleme notları:\n" + "\n".join(ai_lines)
         if model and client.configured(model):
             try:
                 res = client.chat(model, [{"role": "system", "content": prompts.ANSWER_SYSTEM},
@@ -133,6 +162,29 @@ def _summary(question: str, items: list[dict], model: str | None, case_id: int, 
         except client.AIError:
             pass
     return _local_answer(question, items, notes), 0.0
+
+
+def _ai_coverage(ctx: jobs.JobContext, case_id: int, qid: int, plan: dict, question: str, model: str, s: dict,
+                 evidence_ids: list[int] | None) -> tuple[list, dict, list[str]]:
+    """Önce ön inceleme notları (yalnızca metin), notu olmayan videolar ya da yetersiz sonuç için kare taraması."""
+    from .ai import scan as scanmod
+    ctx.progress(0.17, "Yapay zekâ notları inceleniyor")
+    cands, usage, covered = scanmod.from_notes(case_id, plan, question, model, evidence_ids=evidence_ids, query_id=qid)
+    notes = [f"Yapay zekâ ön inceleme notlarından {len(cands)} olası an seçti"] if covered else []
+    ready = [e["id"] for e in scanmod._ready(case_id, evidence_ids)]
+    todo = [e for e in ready if e not in covered] if len(cands) >= 2 else ready
+    if todo:
+        label = "Yapay zekâ videoları tarıyor"
+        ctx.progress(0.18, label)
+        sc, su, sn = scanmod.scan(case_id, plan, question, model, evidence_ids=todo, query_id=qid,
+                                  grid=int(s.get("scan_grid", 3)), max_frames=int(s.get("scan_max_frames", 240)),
+                                  check=ctx.check, progress=lambda v: ctx.progress(0.18 + 0.07 * v, label))
+        cands += [c for c in sc if not any(c.evidence_id == x.evidence_id and abs(c.t - x.t) < 1.0 for x in cands)]
+        for k in ("cost", "in", "out", "calls"):
+            usage[k] += su[k]
+        usage["errors"] += su["errors"]
+        notes += sn
+    return cands, usage, notes
 
 
 def _tr_dt(iso: str | None) -> str:
@@ -208,13 +260,39 @@ def query_job(ctx: jobs.JobContext, params: dict) -> dict:
         if mode in ("dogrula", "derin") and not events_mode:
             budget = float(opts.get("budget_usd") or s["budget_per_query_usd"])
             spent = 0.0
+            # Yapay zekâ videonun tamamına bakar (ön inceleme notları ya da kare ızgaraları): yerel analizin
+            # aday yapmadığı anlar da doğrulamaya gelir. Plaka ve çizilen alan soruları yerel yöntemle kalır.
+            if s.get("ai_scan", True) and not plan.get("plate") and not opts.get("roi_id"):
+                ai_cands, au, ai_notes = _ai_coverage(ctx, case_id, qid, plan, q["question"], roles["verifier"], s,
+                                                      opts.get("evidence_ids"))
+                cost += au["cost"]
+                spent += au["cost"]
+                tin += au["in"]
+                tout += au["out"]
+                notes += ai_notes + [e for e in sorted(set(au["errors"]))[:2] if e not in notes]
+                if ai_cands and not plan.get("classes"):
+                    # Soru bir nesne türü içermiyorsa (ör. "yerde beyaz bir nesne") yerel arama her kişi/araç
+                    # izini aday yapar; doğrulama ilgisiz kırpıntılarla dolmasın, yapay zekânın bulduğu anlar öne çıksın
+                    cands = [c for c in cands if c.kind == "iz"][:8] + [c for c in cands if c.kind != "iz"]
+                # Yerel adayla aynı an: yerel aday (kutusu, kırpıntısı) korunur, yapay zekânın notu ona eklenir
+                fresh = []
+                for a in ai_cands:
+                    same = next((c for c in cands if c.evidence_id == a.evidence_id and abs(c.t - a.t) < 0.5), None)
+                    if same is None:
+                        fresh.append(a)
+                    else:
+                        same.reasons = a.reasons + same.reasons
+                        same.score = max(same.score, a.score)
+                cands = fresh + sorted(cands, key=lambda c: -c.score)
             if not cands:
                 # Yerel analiz bir şey bulamadı: model videolardan düzenli aralıklı kareleri doğrudan incelesin
                 cands = searchmod.expand(case_id, plan, opts.get("evidence_ids"), opts.get("roi_id"), min(limit, 24), [])
                 if cands:
                     notes.append(f"Yerel analiz aday bulamadı; videolardan {len(cands)} kare doğrudan modele incelettirildi")
             pending = list(cands)
-            question = plan.get("verify_question") or q["question"]
+            # Modelin yeniden yazdığı soru anlamı daraltabilir; kullanıcının özgün sorusu her zaman gider
+            vq = plan.get("verify_question")
+            question = q["question"] + (f" (aranan: {vq})" if vq and vq.strip() != q["question"].strip() else "")
             for rnd in (1, 2):
                 if not pending:
                     break
@@ -272,7 +350,8 @@ def query_job(ctx: jobs.JobContext, params: dict) -> dict:
 
         ctx.progress(0.94, "Cevap yazılıyor")
         answer, c2 = _summary(q["question"], items, roles["planner"] if mode != "hizli" else None, case_id, qid,
-                              notes, events_mode)
+                              notes, events_mode,
+                              _ai_note_lines(case_id, plan, opts.get("evidence_ids")) if events_mode else None)
         cost += c2
         db.update("queries", qid, {
             "status": "tamamlandi", "results": dumps(items), "answer": answer, "cost": round(cost, 6),

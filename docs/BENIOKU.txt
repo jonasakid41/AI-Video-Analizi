@@ -34,6 +34,13 @@ YAPAY ZEKÂ (İSTEĞE BAĞLI)
    Ücretsiz modeller de seçilebilir. Ücretli modellerin maliyeti kendi OpenRouter hesabınızdan düşer;
    her sorudan önce tahmini maliyet gösterilir.
 
+YAPAY ZEKÂ İLE İNCELEME
+Yapay zekâ bağlıysa video yüklendikten sonra model videonun tamamını izleyip zaman damgalı notlar
+çıkarır (Bilgi sekmesi). Sorularda model önce bu notlarda arar, gerekirse videonun tamamını tarar;
+bulduğu anlar tam çözünürlükte yeniden doğrulanır. Böylece yerel analizin tanımadığı nesneler de bulunur.
+CLI aboneliğinde (Claude Code vb.) ön inceleme otomatiktir; Claude Code'da varsayılan model Opus'tur.
+Ayarlar > Yapay zekâ > "Yapay zekâ ile inceleme" bölümünden değiştirilebilir.
+
 GECE / SİYAH-BEYAZ KAYITLAR
 Gece kızılötesi (siyah-beyaz) kayıtlar otomatik tanınır: renk yerine ton (koyu/açık) kaydedilir,
 renkli sorularda kişiler renge göre elenmez ve yapay zekâya rengin doğrulanamayacağı söylenir.

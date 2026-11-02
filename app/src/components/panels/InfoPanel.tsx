@@ -1,13 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Copy, FolderOpen, RefreshCw, Wrench } from "lucide-react";
+import { Copy, FolderOpen, RefreshCw, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, caseExportsDir, dataDir, openFolder } from "../../lib/api";
 import { ACTION_LABELS, fmtBytes, fmtDateTime, IGNORABLE_KINDS, KIND_STYLE } from "../../lib/format";
-import { qk, useHistory } from "../../lib/hooks";
-import { fmtDuration } from "../../lib/time";
+import { qk, useAiNotes, useHistory, useJobs, useSettings } from "../../lib/hooks";
+import { fmtDuration, fmtIso, fmtMedia } from "../../lib/time";
 import type { AnalysisStats, Evidence } from "../../lib/types";
-import { toast, toastError } from "../../store";
-import { Badge, Button, Empty, inputCls, KV, Section } from "../ui";
+import { toast, toastError, useUI } from "../../store";
+import { Badge, Button, Empty, inputCls, KV, Progress, Section } from "../ui";
 
 const pct = (v: number) => `%${Math.round(v * 100)}`;
 
@@ -189,6 +189,78 @@ function EvidenceInfo({ ev }: { ev: Evidence }) {
           </div>
         </Section>
       )}
+      {ev.status === "hazir" && <AiReviewSection ev={ev} />}
     </>
+  );
+}
+
+/** Yapay zekânın videonun tamamını izleyip çıkardığı zaman damgalı notlar (sorular önce bunlarda aranır) */
+function AiReviewSection({ ev }: { ev: Evidence }) {
+  const qc = useQueryClient();
+  const { data: notes } = useAiNotes(ev.id);
+  const { data: jobs } = useJobs();
+  const { data: settings } = useSettings();
+  const seek = useUI((s) => s.seek);
+  const [all, setAll] = useState(false);
+  const mine = (jobs ?? []).filter((j) => j.kind === "ai_review" && j.evidence_id === ev.id);
+  const job = mine.find((j) => j.status === "calisiyor" || j.status === "beklemede");
+  const failed = !job && mine[0]?.status === "hata" ? mine[0] : null;
+  const notable = (notes ?? []).filter((n) => n.notable);
+  const shown = (all ? (notes ?? []).filter((n) => !n.text.toLowerCase().startsWith("değişiklik yok")) : notable).slice(0, 300);
+
+  const start = async () => {
+    try {
+      await api.post(`/api/evidence/${ev.id}/ai-review`);
+      qc.invalidateQueries({ queryKey: qk.jobs });
+    } catch (e) {
+      toastError(e);
+    }
+  };
+
+  return (
+    <Section
+      title={
+        <span className="flex items-center gap-1.5">
+          <Sparkles className="size-3.5" /> Yapay zekâ incelemesi
+        </span>
+      }
+      actions={
+        !job && (
+          <Button size="sm" variant="subtle" disabled={!settings?.ai_ready} title={settings?.ai_ready ? "" : "Yapay zekâ bağlantısı gerekir (Ayarlar)"} onClick={start}>
+            {notes?.length ? "Yeniden incele" : "Yapay zekâ ile incele"}
+          </Button>
+        )
+      }
+    >
+      {job ? (
+        <div className="space-y-1">
+          <div className="text-[12px] text-accent">{job.message ?? "Sırada"}</div>
+          <Progress value={job.progress} />
+        </div>
+      ) : notes?.length ? (
+        <div className="text-[12.5px] text-muted">
+          {notes.length} karede not alındı · {notable.length} önemli an. Sorular önce bu notlarda aranır.
+        </div>
+      ) : (
+        <div className="text-[12.5px] text-muted">Henüz yapılmadı. Yapay zekâ videonun tamamını izleyip zaman damgalı notlar çıkarır; sorular önce bu notlarda aranır.</div>
+      )}
+      {failed && <div className="text-[12px] text-danger">{failed.message}</div>}
+      {!!shown.length && (
+        <div className="max-h-72 space-y-0.5 overflow-y-auto">
+          {shown.map((n) => (
+            <button key={n.id} onClick={() => seek(ev.id, n.t, null)} className="flex w-full gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-panel-3 cursor-pointer" title="Bu ana git">
+              <span className="w-14 shrink-0 text-muted tabular">{n.real_t ? fmtIso(n.real_t, false) : fmtMedia(n.t)}</span>
+              <span className={n.notable ? "" : "text-muted"}>{n.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!!notes?.length && (
+        <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
+          tüm notları göster
+        </label>
+      )}
+    </Section>
   );
 }

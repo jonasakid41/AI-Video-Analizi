@@ -16,6 +16,7 @@ Kamera (CCTV/DVR) kayıtlarını bilgisayarda inceleyen, ücretsiz ve açık kay
   - *"14:00–15:00 arası kırmızı montlu biri geçti mi?"* gibi sorular sorulabilir.
   - **Hızlı** mod tamamen yereldir.
   - **Doğrulamalı** ve **Derin** modlar, OpenRouter üzerinden kullanıcının seçtiği görsel/video modelini kullanır.
+  - **Yapay zekâ videonun tamamını görür:** Yüklemeden sonra ön inceleme yapılır ve zaman damgalı notlar çıkar. Sorularda önce notlar, gerekirse kare ızgaralarıyla bütün kayıt taranır; bulunan anlar tam çözünürlükte doğrulanır.
   - **Abonelikle kullanım:** OpenRouter yerine bilgisayarda kurulu Claude Code, OpenAI Codex CLI ya da Gemini CLI seçilebilir. Bu durumda ücreti kullanıcının aboneliği karşılar (Codex ve Gemini deneysel).
 - **Zor kayıtlar:**
   - Geniş açılı kameralarda uzaktaki küçük kişiler, hareket bölgesi yakınlaştırılarak yeniden aranır.

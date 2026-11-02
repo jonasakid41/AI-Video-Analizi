@@ -54,6 +54,13 @@ DEFAULTS: dict[str, Any] = {
         "send_context_frame": True,
         "timeout_s": 120,
         "cli_paths": {},  # araç → exe yolu (boşsa PATH ve bilinen kurulum yerleri taranır)
+        # Yapay zekâ videonun tamamına bakar: sorularda kare ızgarası taraması, yüklemede ön inceleme.
+        # auto_review "auto": CLI aboneliğinde açık (ücretsiz), API'de kapalı (maliyet kullanıcının onayıyla)
+        "ai_scan": True,
+        "auto_review": "auto",
+        "scan_grid": 3,
+        "scan_max_frames": 240,
+        "review_max_frames": 600,
     },
     "analysis": {
         "auto_analyze": True,
