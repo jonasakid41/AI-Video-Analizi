@@ -123,3 +123,41 @@ def test_iter_frames_sampling(corpus):
     times = [t for t, _ in frames.iter_frames(d / "h264.mp4", sample_fps=2, t0=1.0, t1=4.0)]
     assert times[0] >= 1.0 and times[-1] <= 4.0
     assert 6 <= len(times) <= 8
+
+
+# --- Hikvision IMKH + MPEG-PS (H.265, G.711) dışa aktarımları ----------------------------------
+
+def _hik(tmp_path, name, **kw):
+    import synth
+    p = tmp_path / name
+    meta = synth.build_hikvision_ps(p, size=(1280, 720), seconds=4, **kw)
+    spec, _ = opener.choose(p, sniff(p))
+    stats = convert.remux_evidence(p, spec, tmp_path / (name + "_kopya"))
+    return meta, stats, convert.verify_decode(Path(stats["path"]))
+
+
+def test_hikvision_hevc_with_g711_audio_converts(tmp_path):
+    # Gerçek bir dışa aktarımda başlık atlanınca ses MP2 sanılıyor, kap başlığı yazılamıyor ve
+    # "Hiç video paketi kopyalanamadı" hatası çıkıyordu
+    meta, stats, dec = _hik(tmp_path, "A06_20261030031100.mp4")
+    assert meta["split_frames"] > 0  # büyük kareler birden çok PES paketine bölünmüş
+    assert sniff(tmp_path / "A06_20261030031100.mp4").kind == "hikvision"
+    assert stats["video_codec"] == "hevc" and stats["audio_codec"] == "pcm_alaw" and stats["container"] == "nut"
+    assert stats["video_packets"] == meta["frames"] and dec["errors"] == 0
+    assert not stats["gaps"] and not stats["clock_jumps"]
+
+
+def test_equal_timestamps_do_not_drop_frames(tmp_path):
+    # Eşit damgalı karelerin atılması sonraki kareleri anahtar kareye kadar bozuyordu
+    meta, stats, dec = _hik(tmp_path, "esit.mp4", jumps={30: -3600, 60: -3600})
+    assert stats["video_packets"] == meta["frames"] and stats["fixed_timestamps"] >= 2 and dec["errors"] == 0
+
+
+@pytest.mark.parametrize("base", [90000 * 7200, 1_000_000])  # ikincisinde 33 bit sayaç taşar
+def test_camera_clock_jump_back_keeps_timeline(tmp_path, base):
+    meta, stats, dec = _hik(tmp_path, f"geri_{base}.mp4", jumps={50: -90000 * 3600}, pts_base=base)
+    assert stats["video_packets"] == meta["frames"]
+    assert not stats["gaps"], stats["gaps"]  # sahte 25 saatlik "boşluk" yok
+    assert len(stats["clock_jumps"]) == 1 and stats["clock_jumps"][0][1] == pytest.approx(-3600, abs=1)
+    info = opener.probe(Path(stats["path"]), opener.OpenSpec("evidence"))
+    assert info["duration"] < 6

@@ -100,6 +100,10 @@ def candidate_specs(path: Path, s: SniffResult) -> list[OpenSpec]:
     raw = s.kind in ("h264", "hevc")
     if not raw and s.offset == 0:
         specs.append(OpenSpec("Doğrudan açma"))
+    if s.kind == "hikvision":
+        # FFmpeg IMKH başlığını kendisi tanır (G.711 sesi ve H.264/H.265 eşlemesi buna bağlı). Başlık atlanırsa
+        # ses MP2 sanılıp örnekleme hızı 0 çıkıyor ve kayıpsız kopya hiç yazılamıyordu.
+        specs.append(OpenSpec("Hikvision (IMKH başlığıyla)", format="mpeg", options=dict(TOLERANT)))
     if s.format_hint:
         specs.append(OpenSpec(f"Demuxer zorlama ({s.format_hint})", format=s.format_hint,
                               offset=s.offset, options=dict(TOLERANT), raw=raw, fps=25.0 if raw else None))

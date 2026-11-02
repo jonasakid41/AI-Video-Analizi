@@ -103,6 +103,9 @@ export interface Evidence {
       container?: string;
       gaps?: [number, number][];
       dropped?: number;
+      audio_codec?: string | null;
+      fixed_timestamps?: number;
+      clock_jumps?: [number, number][]; // [medya zamanı, sıçrama sn (eksi: geri)]
       keyframe_interval?: number | null;
       proxy?: { mode: string; encoder?: string | null; encoder_label?: string };
       sprite?: SpriteInfo;

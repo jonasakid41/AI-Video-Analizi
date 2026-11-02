@@ -1,5 +1,21 @@
 # Sürüm geçmişi
 
+## 0.1.5 — 2 Kasım 2026
+
+Hikvision dışa aktarımlarının (IMKH başlıklı MPEG-PS, H.265 + G.711) dönüştürülememesi ve kayıtta görülen ufak bozulmalar düzeltildi.
+
+- **"Hiç video paketi kopyalanamadı" hatası:**
+  - Hikvision dosyalarında başlık atlanınca ses G.711 yerine MP2 sanılıyordu. Örnekleme hızı 0 çıktığı için kayıpsız kopyanın kabı hiç yazılamıyor ve dosya dönüştürülemiyordu.
+  - Bu dosyalar artık IMKH başlığıyla açılıyor; FFmpeg sesi doğru tanıyor.
+  - Kayıpsız kopya önce ses + video için MKV'yi, sonra NUT'u, en son yalnızca videoyu deniyor. Kap başlığı önceden yazılıyor; bir ses sorunu artık videoyu engellemiyor.
+  - G.711 ses kayıpsız kopyada korunuyor.
+- **Ufak bozulmalar:**
+  - Kopyalamada zaman damgası eşit, eksik ya da geri giden video kareleri atılıyordu. Atılan tek bir kare, sonraki kareleri bir sonraki anahtar kareye kadar bozuyordu.
+  - Artık hiçbir video karesi zaman damgası yüzünden atılmıyor. Eksik damga tahmin ediliyor, eşit ya da az geri giden damga bir tık ileri alınıyor.
+- **Kamera saati geri atlarsa:**
+  - Saat ayarı ya da sayaç sıfırlanması yüzünden zaman damgası geri giderse zaman çizgisi kesintisiz sürdürülüyor ve olay Bilgi sekmesinde gösteriliyor.
+  - MPEG-PS'in 33 bitlik sayacının taşması artık 25 saatlik sahte bir "kayıt boşluğu" oluşturmuyor.
+- **Çalışma kopyası kalitesi:** Yüksek çözünürlükten 1080p'ye indirilen görüntüde bloklanmayı azaltmak için kodlayıcı kalitesi bir kademe yükseltildi.
 ## 0.1.4 — 2 Kasım 2026
 
 Yüksek çözünürlüklü bazı videoların "ValueError" ile dönüştürülememesi düzeltildi.

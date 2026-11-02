@@ -1,6 +1,6 @@
 [package]
 name = "ai-video-analizi"
-version = "0.1.4"
+version = "0.1.5"
 description = "AI Video Analizi — kamera kaydı inceleme aracı"
 license = "GPL-3.0-or-later"
 edition = "2021"

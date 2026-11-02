@@ -283,6 +283,79 @@ def build_from_real(path: Path, src: Path, seconds: float = 20.0, scale: float =
     return path
 
 
+# --- Hikvision dışa aktarımı taklidi: IMKH başlığı + MPEG-PS (PSM, bölünmüş PES) ---------------
+
+# Gerçek bir dışa aktarımın ilk 40 baytı (H.265 video, G.711 ses 8 kHz)
+IMKH_HEVC = bytes.fromhex("494d4b4802010000020005001071011040" "1f0000401f0000") + bytes(16)
+
+
+def _pts5(v: int, prefix: int = 0b0010) -> bytes:
+    return bytes([(prefix << 4) | (((v >> 30) & 7) << 1) | 1, (v >> 22) & 0xFF, (((v >> 15) & 0x7F) << 1) | 1,
+                  (v >> 7) & 0xFF, ((v & 0x7F) << 1) | 1])
+
+
+def _pack_header(scr: int) -> bytes:
+    v = (1 << 46) | (((scr >> 30) & 7) << 43) | (1 << 42) | (((scr >> 15) & 0x7FFF) << 27) | (1 << 26) \
+        | ((scr & 0x7FFF) << 11) | (1 << 10) | 1
+    return b"\x00\x00\x01\xba" + v.to_bytes(6, "big") + ((6106 << 2) | 3).to_bytes(3, "big") + b"\xf8"
+
+
+def _psm(entries: list[tuple[int, int]]) -> bytes:
+    es_map = b"".join(bytes([t, sid, 0, 0]) for t, sid in entries)
+    body = b"\xe0\xff" + (0).to_bytes(2, "big") + len(es_map).to_bytes(2, "big") + es_map
+    return b"\x00\x00\x01\xbc" + (len(body) + 4).to_bytes(2, "big") + body + bytes(4)
+
+
+def _pes(sid: int, payload: bytes, pts: int | None) -> bytes:
+    hdr = (b"\x80\x80\x05" + _pts5(pts)) if pts is not None else b"\x80\x00\x00"
+    return b"\x00\x00\x01" + bytes([sid]) + (len(hdr) + len(payload)).to_bytes(2, "big") + hdr + payload
+
+
+def build_hikvision_ps(path: Path, codec: str = "libx265", size: tuple[int, int] = (2560, 1440),
+                       seconds: float = 8.0, fps: int = 25, skip: int = 7, psm: bool = True,
+                       pts_base: int = 1_000_000, jumps: dict[int, int] | None = None, chunk: int = 65000) -> dict:
+    """Hikvision NVR/DVR dışa aktarımı gibi bir dosya. Büyük kareler birden çok PES paketine bölünür ve
+    zaman damgası yalnızca ilk parçada bulunur; kayıt bir GOP'un ortasından başlar (skip kare atlanır);
+    jumps = {kare no: 90 kHz kayma} kamera saatinin geri/ileri atlamasını taklit eder."""
+    W, H = size
+    ctx = av.CodecContext.create(codec, "w")
+    ctx.width, ctx.height, ctx.pix_fmt = W, H, "yuv420p"
+    ctx.time_base, ctx.framerate = Fraction(1, fps), Fraction(fps)
+    ctx.options = ({"preset": "ultrafast", "x265-params": "keyint=25:min-keyint=25:bframes=0:repeat-headers=1:log-level=error"}
+                   if codec == "libx265" else {"preset": "ultrafast", "bf": "0", "g": "25"})
+    rng = np.random.default_rng(3)
+    texture = rng.integers(0, 255, (H, W, 3), dtype=np.uint8)
+    packets: list[tuple[bytes, bool]] = []
+    n = int(seconds * fps)
+    for i in range(n + 1):
+        frame = None
+        if i < n:
+            img = cv2.addWeighted(texture, 0.35, np.full_like(texture, 110), 0.65, 0)
+            x = int(W * 0.1 + (W * 0.7) * i / n)
+            cv2.rectangle(img, (x, H // 3), (x + W // 10, H // 3 + H // 4), (30, 40, 200), -1)
+            frame = av.VideoFrame.from_ndarray(img, format="bgr24").reformat(format="yuv420p")
+            frame.pts = i
+        for p in ctx.encode(frame):
+            packets.append((bytes(p), p.is_keyframe))
+    out = bytearray(IMKH_HEVC if codec == "libx265" else IMKH_HEVC[:10] + b"\x01\x00" + IMKH_HEVC[12:])
+    stype = 0x24 if codec == "libx265" else 0x1B
+    pts = pts_base
+    frames_written = 0
+    for i, (data, key) in enumerate(packets[skip:], start=skip):
+        pts += 90000 // fps + (jumps or {}).get(i, 0)
+        out += _pack_header(pts - 3600)
+        if key and psm:
+            out += _psm([(stype, 0xE0), (0x90, 0xC0)])
+        for k in range(0, len(data), chunk):
+            out += _pes(0xE0, data[k:k + chunk], pts if k == 0 else None)
+        out += _pes(0xC0, b"\xd5" * (8000 // fps), pts)  # G.711 A-law sessizlik
+        frames_written += 1
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(out))
+    sizes = [len(d) for d, _k in packets]
+    return {"frames": frames_written, "max_frame": max(sizes), "split_frames": sum(s > chunk for s in sizes)}
+
+
 def build_osd_video(path: Path, osd_offset: float = 222.0, gap_at: float | None = 10.0,
                     gap_s: float = 600.0, seconds: float = 20.0) -> Scene:
     sc = Scene(seconds=seconds, osd_offset=osd_offset, gap_at=gap_at, gap_s=gap_s)

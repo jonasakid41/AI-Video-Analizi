@@ -11,6 +11,14 @@ import { Badge, Button, Empty, inputCls, KV, Section } from "../ui";
 
 const pct = (v: number) => `%${Math.round(v * 100)}`;
 
+/** Kayıpsız kopyada düzeltilen damgalar ve kamera saatinin geri sıçramaları (kare atılmaz) */
+function timestampText(fixed?: number, jumps?: [number, number][]): string {
+  const parts: string[] = [];
+  if (fixed) parts.push(`${fixed} karenin damgası düzeltildi`);
+  if (jumps?.length) parts.push(`kamera saati ${jumps.length} kez geri atladı (${jumps.map(([, s]) => `${Math.round(s)} sn`).join(", ")}); zaman çizgisi kesintisiz sürdürüldü`);
+  return parts.length ? parts.join(" · ") : "düzgün";
+}
+
 /** Siyah-beyaz (gece/IR), düşük ışık ve küçük nesneler için yapılan uyarlamalar */
 function pictureText(g?: AnalysisStats["goruntu"]): string {
   if (!g) return "—";
@@ -109,7 +117,8 @@ function EvidenceInfo({ ev }: { ev: Evidence }) {
             ["Açma yöntemi", ev.strategy.name ?? "—"],
             ["Görüntü", ev.width ? `${ev.codec} · ${ev.width}×${ev.height} · ${ev.fps?.toFixed(2)} fps` : "—"],
             ["Süre", fmtDuration(ev.duration)],
-            ["Kayıpsız kopya", conv ? `${conv.container === "nut" ? "NUT" : "MKV"} kabı${conv.dropped ? ` · ${conv.dropped} bozuk paket atlandı` : ""}` : "—"],
+            ["Kayıpsız kopya", conv ? `${conv.container === "nut" ? "NUT" : "MKV"} kabı${conv.audio_codec ? ` · ses: ${conv.audio_codec}` : " · ses yok"}${conv.dropped ? ` · ${conv.dropped} ses/bozuk paket atlandı` : ""}` : "—"],
+            ["Zaman damgası", conv ? timestampText(conv.fixed_timestamps, conv.clock_jumps) : "—"],
             ["Çalışma kopyası", conv?.proxy ? (conv.proxy.mode === "kodlama" ? conv.proxy.encoder_label : "yeniden paketleme (kayıpsız)") : "—"],
             ["Kayıt boşluğu", conv?.gaps?.length ? `${conv.gaps.length} adet` : "yok"],
           ]}

@@ -32,8 +32,14 @@ def _noop(_v: float, _m: str | None = None) -> None:
     pass
 
 
-# Kayıpsız kopya için kap sırası: MKV çoğu codec'i taşır; taşıyamazsa FFmpeg'in NUT kabı
-EVIDENCE_CONTAINERS = [("matroska", ".mkv"), ("nut", ".nut")]
+# Kayıpsız kopya planları: önce ses + video (MKV çoğu kodeği taşır; taşıyamazsa FFmpeg'in NUT kabı),
+# olmazsa yalnızca video. G.711 gibi sesleri MKV taşıyamaz; parametreleri bozuk bir ses akışı
+# (ör. örnekleme hızı 0) kabın başlığını yazdırmaz ve önceden hiçbir paket kopyalanamıyordu.
+EVIDENCE_PLANS = [("matroska", ".mkv", True), ("nut", ".nut", True), ("matroska", ".mkv", False),
+                  ("nut", ".nut", False)]
+# Bu kadar geri giden zaman damgası kamera saatinin geri alınması / sayacın sıfırlanması sayılır
+CLOCK_RESET_SECONDS = 2.0
+WRAP_33 = 1 << 33  # MPEG 90 kHz zaman damgası aralığı
 
 
 class UnsupportedInContainer(ValueError):
@@ -53,14 +59,15 @@ def copy_stream(out: av.container.OutputContainer, s: av.stream.Stream) -> av.st
 def remux_evidence(src: Path, spec: OpenSpec, dst_base: Path, progress: Progress = _noop) -> dict:
     """dst_base uzantısız hedef yoldur (ör. .../evidence). Oluşan dosya stats["path"] içindedir."""
     last_err: Exception | None = None
-    for fmt, ext in EVIDENCE_CONTAINERS:
+    for fmt, ext, audio in EVIDENCE_PLANS:
         dst = dst_base.with_suffix(ext)
         try:
-            stats = _remux_into(src, spec, dst, fmt, progress)
+            stats = _remux_into(src, spec, dst, fmt, progress, audio)
             stats["path"] = str(dst)
             stats["container"] = fmt
             return stats
         except UnsupportedInContainer as e:
+            log.info("Kayıpsız kopya planı geçildi (%s, ses=%s): %s", fmt, audio, e)
             last_err = e
             dst.unlink(missing_ok=True)
     raise ValueError(f"Kayıpsız kopya oluşturulamadı: {last_err}")
@@ -113,9 +120,14 @@ def _raw_presentation_ranks(src: Path, spec: OpenSpec, progress: Progress = _noo
     return [rank.get(j) for j in range(n)]
 
 
-def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progress) -> dict:
+def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progress, with_audio: bool = True) -> dict:
+    """Paketleri yeniden kodlamadan kopyalar. Video paketleri zaman damgası yüzünden atılmaz: atılan tek bir
+    P karesi sonraki kareleri bir sonraki anahtar kareye kadar bozar (kayıtta "ufak bozulmalar").
+    Eksik damga bir önceki kareden tahmin edilir, eşit ya da az geri giden damga bir tık ileri alınır,
+    büyük geri sıçramada (kamera saati geri alındı / sayaç sıfırlandı) zaman çizgisi kesintisiz sürdürülür."""
     size = max(1, src.stat().st_size)
-    stats = {"packets": 0, "dropped": 0, "gaps": [], "video_codec": None, "audio": False}
+    stats = {"packets": 0, "video_packets": 0, "dropped": 0, "gaps": [], "video_codec": None, "audio": False,
+             "audio_codec": None, "fixed_timestamps": 0, "clock_jumps": []}
     ranks = None
     if spec.raw:
         ranks = _raw_presentation_ranks(src, spec, lambda v, m=None: progress(0.5 * v, m))
@@ -126,16 +138,21 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
     delay = max((j - r for j, r in enumerate(ranks) if r is not None), default=0) if ranks else 0
     with open_container(src, spec) as ic:
         vin = ic.streams.video[0]
-        ins = [vin] + list(ic.streams.audio[:1])
+        auds = [a for a in ic.streams.audio[:1] if with_audio and (a.codec_context.sample_rate or 0) > 0]
+        ins = [vin] + auds
         with av.open(str(dst), "w", format=fmt) as out:
             omap = {}
             for s in ins:
                 try:
                     omap[s.index] = copy_stream(out, s)
                 except (ValueError, av.error.FFmpegError) as e:
-                    if s is vin:
-                        raise UnsupportedInContainer(str(e)) from e
+                    raise UnsupportedInContainer(f"{s.type} ({s.codec_context.name}): {e}") from e
+            try:
+                out.start_encoding()  # başlık burada yazılır; olmazsa her paket hata verirdi
+            except (ValueError, av.error.FFmpegError) as e:
+                raise UnsupportedInContainer(f"kap başlığı yazılamadı: {e}") from e
             stats["audio"] = len(omap) > 1
+            stats["audio_codec"] = auds[0].codec_context.name if auds else None
             stats["video_codec"] = vin.codec_context.name
             stats["b_frames_reordered"] = bool(ranks)
             fps = spec.fps or float(vin.average_rate or vin.guessed_rate or 25)
@@ -143,6 +160,7 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
             raw_counter = 0
             # Ham akışın kendi zaman ekseni yok; 0'dan üretilir, kaydırma gerekmez
             shift: float | None = 0.0 if spec.raw else None
+            adjust = 0.0  # sn: geri sıçramalardan sonra zaman çizgisini sürdürmek için eklenen
             last_dts: dict[int, int] = {}
             last_vt: float | None = None
             for pkt in ic.demux(*ins):
@@ -162,28 +180,54 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
                     tick = frame_dur / tb
                     pkt.pts = int(round((r + delay) * tick))
                     pkt.dts = int(round(j * tick))
+                step = max(1, int(round(frame_dur / tb)))
                 if pkt.pts is None and pkt.dts is None:
-                    stats["dropped"] += 1
-                    continue
-                if pkt.pts is None:
-                    pkt.pts = pkt.dts
-                # dts boşsa (MKV'de B-frame'li akışlar) muxer hesaplar; doldurulmaz
-                if shift is None:
-                    if st is not vin:
-                        continue  # ilk video paketinden önceki ses atlanır
-                    shift = float(pkt.pts * tb)
-                off = int(round(shift / tb))
-                if off:
-                    pkt.pts -= off
-                    if pkt.dts is not None:
-                        pkt.dts -= off
-                if st is not vin and pkt.pts < 0:
-                    continue
-                if pkt.dts is not None:
-                    prev = last_dts.get(st.index)
-                    if prev is not None and pkt.dts <= prev:
-                        stats["dropped"] += 1
+                    if st is not vin or vin.index not in last_dts:
+                        stats["dropped"] += 1  # ses ya da ilk paket: tahmin için dayanak yok
                         continue
+                    # Damgasız video paketi: bir önceki karenin ardına konur (atılırsa görüntü bozulur)
+                    pkt.dts = pkt.pts = last_dts[vin.index] + step
+                    stats["fixed_timestamps"] += 1
+                else:
+                    if pkt.pts is None:
+                        pkt.pts = pkt.dts
+                    # dts boşsa (MKV'de B-frame'li akışlar) muxer hesaplar; doldurulmaz
+                    if shift is None:
+                        if st is not vin:
+                            continue  # ilk video paketinden önceki ses atlanır
+                        shift = float(pkt.pts * tb)
+                    off = int(round((shift - adjust) / tb))
+                    if off:
+                        pkt.pts -= off
+                        if pkt.dts is not None:
+                            pkt.dts -= off
+                    if st is not vin and pkt.pts < 0:
+                        continue
+                    prev = last_dts.get(st.index)
+                    if (pkt.dts is not None and prev is not None and tb == Fraction(1, 90000)
+                            and pkt.dts - prev > WRAP_33 // 2):
+                        # MPEG-PS/TS damgaları 33 bittir: geri giden saat sayacı taşırıp ~26 saatlik sahte
+                        # bir "boşluk" gibi görünür; gerçekte geri sıçramadır (zaman çizgisini video yönetir)
+                        pkt.pts -= WRAP_33
+                        pkt.dts -= WRAP_33
+                        if st is vin:
+                            adjust -= float(WRAP_33 * tb)
+                    if pkt.dts is not None and prev is not None and pkt.dts <= prev:
+                        if st is not vin:
+                            stats["dropped"] += 1  # geri giden ses paketi atlanır (görüntüyü etkilemez)
+                            continue
+                        back = float((prev - pkt.dts) * tb)
+                        if back >= CLOCK_RESET_SECONDS:
+                            # Kamera saati geri alındı ya da sayaç sıfırlandı: zaman çizgisi kesintisiz sürer
+                            fix = prev - pkt.dts + step
+                            adjust += float(fix * tb)
+                            stats["clock_jumps"].append([round(float(prev * tb), 3), round(-back, 3)])
+                        else:
+                            fix = prev - pkt.dts + 1  # eşit / az geri damga: bir tık ileri
+                            stats["fixed_timestamps"] += 1
+                        pkt.pts += fix
+                        pkt.dts += fix
+                if pkt.dts is not None:
                     last_dts[st.index] = pkt.dts
                 if st is vin:
                     # Kayıt boşluğu: ardışık video paketleri arasında beklenmedik zaman sıçraması
@@ -197,6 +241,7 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
                 try:
                     out.mux(pkt)
                     stats["packets"] += 1
+                    stats["video_packets"] += st is vin
                 except (ValueError, av.error.FFmpegError):
                     stats["dropped"] += 1
                 if time.monotonic() - last_beat > 0.3:  # zamana bağlı: takılma bekçisi ilerlemeyi görür
@@ -204,7 +249,7 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
                     progress(base + span * min(0.99, (pkt.pos or 0) / size), None)
     keys = stats.pop("_keys", [])
     stats["keyframe_interval"] = round((keys[-1] - keys[0]) / (len(keys) - 1), 3) if len(keys) > 1 else None
-    if stats["packets"] == 0:
+    if stats["video_packets"] == 0:
         raise ValueError("Hiç video paketi kopyalanamadı")
     return stats
 

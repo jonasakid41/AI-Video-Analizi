@@ -28,12 +28,14 @@ def pix_fmt_for(name: str) -> str:
 
 
 def options_for(name: str) -> dict[str, str]:
+    # Yüksek çözünürlüklü kaynak 1080p'ye indirilirken ince ayrıntı (plaka, yüz) bloklaşmasın diye kalite
+    # bir kademe yüksek; NVENC'de uzamsal uyarlamalı niceleme düz alanlardaki bloklanmayı azaltır
     return {
-        "h264_nvenc": {"preset": "p4", "rc": "vbr", "cq": "24"},
-        "h264_qsv": {"preset": "faster", "global_quality": "24"},
-        "h264_amf": {"quality": "balanced", "rc": "cqp", "qp_i": "22", "qp_p": "24"},
-        "libx264": {"preset": "veryfast", "crf": "23"},
-        "h264_mf": {"rate_control": "quality", "quality": "70"},
+        "h264_nvenc": {"preset": "p5", "rc": "vbr", "cq": "22", "spatial-aq": "1"},
+        "h264_qsv": {"preset": "faster", "global_quality": "22"},
+        "h264_amf": {"quality": "balanced", "rc": "cqp", "qp_i": "20", "qp_p": "22"},
+        "libx264": {"preset": "veryfast", "crf": "21"},
+        "h264_mf": {"rate_control": "quality", "quality": "75"},
     }.get(name, {})
 
 
