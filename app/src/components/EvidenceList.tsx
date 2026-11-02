@@ -35,10 +35,10 @@ export default function EvidenceList({ caseId }: { caseId: number }) {
   }, [caseId]);
 
   const jobFor = useMemo(() => {
-    const m = new Map<number, { progress: number; message: string; kind: string }>();
+    const m = new Map<number, RowJob>();
     for (const j of jobs ?? []) {
       if (j.evidence_id && (j.status === "calisiyor" || j.status === "beklemede") && !m.has(j.evidence_id)) {
-        m.set(j.evidence_id, { progress: j.progress, message: j.message, kind: j.kind });
+        m.set(j.evidence_id, { id: j.id, progress: j.progress, message: j.message, kind: j.kind });
       }
     }
     return m;
@@ -88,7 +88,9 @@ export default function EvidenceList({ caseId }: { caseId: number }) {
   );
 }
 
-function EvidenceRow({ e, active, job, onClick }: { e: Evidence; active: boolean; job?: { progress: number; message: string; kind: string }; onClick: () => void }) {
+type RowJob = { id: number; progress: number; message: string; kind: string };
+
+function EvidenceRow({ e, active, job, onClick }: { e: Evidence; active: boolean; job?: RowJob; onClick: () => void }) {
   const qc = useQueryClient();
   const remove = async (ev: React.MouseEvent) => {
     ev.stopPropagation();
@@ -128,14 +130,38 @@ function EvidenceRow({ e, active, job, onClick }: { e: Evidence; active: boolean
         </div>
         {job ? (
           <div className="mt-1 space-y-1">
-            <div className="truncate text-[11px] text-accent" title={job.message}>
-              {job.message}
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 flex-1 truncate text-[11px] text-accent" title={job.message}>
+                {job.message}
+              </div>
+              <span className="text-[10.5px] tabular text-muted">%{Math.round(job.progress * 100)}</span>
+              <button
+                className="rounded px-1 text-[11px] text-muted hover:bg-danger/20 hover:text-danger cursor-pointer"
+                title={job.kind === "analyze" ? "Analizi iptal et" : "Dönüştürmeyi iptal et"}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  api.post(`/api/jobs/${job.id}/cancel`).then(() => toast("İptal ediliyor…")).catch(toastError);
+                }}
+              >
+                İptal
+              </button>
             </div>
             <Progress value={job.progress} />
           </div>
         ) : (
           <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
             {e.status !== "hazir" && <Badge tone={tone}>{e.status_label}</Badge>}
+            {e.status === "hata" && (
+              <button
+                className="text-accent hover:underline cursor-pointer"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  api.post(`/api/evidence/${e.id}/reingest`).then(() => toast("Yeniden dönüştürülüyor")).catch(toastError);
+                }}
+              >
+                Yeniden dene
+              </button>
+            )}
             {e.status === "hazir" && (
               <span className="tabular" title="Videonun başlangıç saati (düzeltilmiş)">
                 {e.real_start ? fmtIso(e.real_start) : <span className="text-warn">saat bilinmiyor</span>}

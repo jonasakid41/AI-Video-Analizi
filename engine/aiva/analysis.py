@@ -55,6 +55,13 @@ def _clear(eid: int, crops: Path) -> None:
         shutil.rmtree(crops, ignore_errors=True)
 
 
+def recover() -> None:
+    """Açılışta: yarıda kalan analizlerin (analiz edildi bayrağı kapalı ama satırları olan) kalıntılarını siler."""
+    for ev in db.rows("""SELECT DISTINCT e.id, e.case_id FROM evidence e
+                         JOIN detections d ON d.evidence_id = e.id WHERE e.analyzed = 0"""):
+        _clear(ev["id"], paths.evidence_dir(ev["case_id"], ev["id"]) / "crops")
+
+
 def _plan(segs: list[tuple[float, float]], duration: float, fps: float) -> list[tuple[float, float, float, str]]:
     """Aktif bölümler tam hızda, aradakiler seyrek örneklenir."""
     plan = []

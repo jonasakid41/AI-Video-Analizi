@@ -66,6 +66,26 @@ def normalize(v: np.ndarray) -> np.ndarray:
     return v / np.maximum(n, 1e-9)
 
 
+def parent_watchdog(pid: int) -> None:
+    """Ebeveyn süreç kapanınca bu süreci de kapatır (Windows)."""
+    import os
+    import threading
+
+    if os.name != "nt":
+        return
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not h:
+        return
+
+    def watch():
+        k32.WaitForSingleObject(h, 0xFFFFFFFF)
+        os._exit(0)
+
+    threading.Thread(target=watch, daemon=True, name="parent-watchdog").start()
+
+
 def remove_tree(path: Path, attempts: int = 5) -> None:
     """Klasörü siler; salt-okunur dosyaları (orijinal kopyalar) ve kısa süreli kilitleri (Windows) aşar."""
     import os

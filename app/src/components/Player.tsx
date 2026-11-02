@@ -6,13 +6,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, mediaUrl } from "../lib/api";
 import { CLASS_TR, clsColor } from "../lib/format";
-import { CHUNK, qk, useDetectionChunk, useEvidenceList, useFindings, useMapping, useRois, useTracks } from "../lib/hooks";
+import { CHUNK, qk, useDetectionChunk, useEvidenceList, useFindings, useJobs, useMapping, useRois, useTracks } from "../lib/hooks";
 import { fmtClock, fmtMedia } from "../lib/time";
 import type { DetectionRow, Evidence, Finding } from "../lib/types";
 import { type Box, toast, toastError, useUI } from "../store";
 import CameraStrip from "./CameraStrip";
 import Timeline from "./Timeline";
-import { Badge, Button, Empty, Field, IconButton, inputCls, Modal, Spinner } from "./ui";
+import { Badge, Button, Empty, Field, IconButton, inputCls, Modal, Progress, Spinner } from "./ui";
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 // Kesit bitince sonraki kesite geçildiğinde yeni oynatıcının otomatik başlaması için
@@ -22,25 +22,54 @@ export default function Player({ caseId, ev }: { caseId: number; ev?: Evidence }
   if (!ev) {
     return <Empty icon={<Camera className="size-10" />} title="Bir video seçin">Soldaki listeden bir video seçin ya da yeni video ekleyin.</Empty>;
   }
-  if (ev.status !== "hazir") {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-        {ev.status === "hata" ? (
-          <>
-            <Badge tone="danger">Açılamadı</Badge>
-            <div className="max-w-md text-muted">{ev.status_detail}</div>
-            <div className="text-[12.5px] text-faint">Ayrıntılar ve teşhis paketi “Bilgi” sekmesinde.</div>
-          </>
-        ) : (
-          <>
-            <Spinner className="size-6" />
-            <div className="text-muted">{ev.status_detail || "Dönüştürme sırada"}</div>
-          </>
-        )}
-      </div>
-    );
-  }
+  if (ev.status !== "hazir") return <NotReady ev={ev} />;
   return <ReadyPlayer key={ev.id} caseId={caseId} ev={ev} />;
+}
+
+/** Dönüştürme sürerken ilerleme + iptal; hata ya da yarıda kalmada yeniden deneme. */
+function NotReady({ ev }: { ev: Evidence }) {
+  const { data: jobs } = useJobs();
+  const setTab = useUI((s) => s.setTab);
+  const job = jobs?.find((j) => j.evidence_id === ev.id && j.kind === "ingest" && (j.status === "calisiyor" || j.status === "beklemede"));
+  const retry = () => api.post(`/api/evidence/${ev.id}/reingest`).then(() => toast("Yeniden dönüştürülüyor")).catch(toastError);
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+      {ev.status === "hata" ? (
+        <>
+          <Badge tone="danger">Dönüştürülemedi</Badge>
+          <div className="max-w-md text-muted">{ev.status_detail}</div>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={retry}>
+              Yeniden dene
+            </Button>
+            <Button variant="ghost" onClick={() => setTab("bilgi")}>
+              Ayrıntılar ve teşhis paketi
+            </Button>
+          </div>
+        </>
+      ) : job ? (
+        <>
+          <Spinner className="size-6" />
+          <div className="text-muted">{job.message || ev.status_detail}</div>
+          <div className="flex w-72 items-center gap-2">
+            <Progress value={job.progress} className="flex-1" />
+            <span className="w-10 text-right text-[12px] tabular text-muted">%{Math.round(job.progress * 100)}</span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => api.post(`/api/jobs/${job.id}/cancel`).then(() => toast("İptal ediliyor…")).catch(toastError)}>
+            İptal et
+          </Button>
+        </>
+      ) : (
+        <>
+          <Spinner className="size-6" />
+          <div className="text-muted">{ev.status_detail || "Dönüştürme sırada"}</div>
+          <Button variant="ghost" size="sm" onClick={retry}>
+            Yeniden başlat
+          </Button>
+        </>
+      )}
+    </div>
+  );
 }
 
 function ReadyPlayer({ caseId, ev }: { caseId: number; ev: Evidence }) {

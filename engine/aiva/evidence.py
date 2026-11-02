@@ -7,17 +7,20 @@ Yükleme adımları: kopyala + SHA-256 → içerik tanıma → strateji zinciri 
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import stat
 from datetime import datetime
 from pathlib import Path
 
-from . import cases, db, events, history, jobs, paths, settings
+from . import cases, db, events, history, jobs, paths, settings, worker
 from .media import convert, frames, opener
 from .media.sniff import hex_head, sniff
 from .timecorr.mapping import TimeMapping
 from .timecorr.parse import parse_filename
 from .util import dumps, imwrite, loads, now_iso, remove_tree
+
+log = logging.getLogger(__name__)
 
 STATUS_LABELS = {
     "beklemede": "Sırada",
@@ -198,6 +201,31 @@ def _copy_with_hash(src: Path, dst: Path, progress) -> str:
 
 @jobs.register("ingest")
 def ingest_job(ctx: jobs.JobContext, params: dict) -> dict:
+    """Hangi adımda biterse bitsin video "Dönüştürülüyor" durumunda takılı kalmaz."""
+    eid = params["evidence_id"]
+    try:
+        return _ingest(ctx, params)
+    except jobs.Cancelled:
+        if get(eid):
+            _set_status(eid, "hata", "Dönüştürme iptal edildi. Başlatmak için “Yeniden dene”.")
+        raise
+    except Exception as e:
+        cur = get(eid)
+        if cur and cur["status"] != "hata":
+            _set_status(eid, "hata", str(e) or e.__class__.__name__)
+        raise
+
+
+def recover() -> None:
+    """Açılışta: uygulama kapandığı ya da motor yeniden başladığı için yarıda kalan dönüştürmeler."""
+    for ev in db.rows("SELECT id FROM evidence WHERE status IN ('beklemede','donusturuluyor')"):
+        db.update("evidence", ev["id"], {
+            "status": "hata",
+            "status_detail": "Dönüştürme yarıda kaldı (uygulama kapandı ya da motor yeniden başladı). "
+                             "“Yeniden dene” ile tekrar başlatın."})
+
+
+def _ingest(ctx: jobs.JobContext, params: dict) -> dict:
     eid = params["evidence_id"]
     ev = require(eid)
     d = folder(ev)
@@ -236,8 +264,7 @@ def ingest_job(ctx: jobs.JobContext, params: dict) -> dict:
                                 "probe": dumps(info)})
 
     _set_status(eid, "donusturuluyor", "Kayıpsız kopya oluşturuluyor")
-    stats = convert.remux_evidence(original, spec, d / "evidence",
-                                   lambda v, m=None: ctx.progress(0.12 + 0.33 * v, "Kayıpsız kopya oluşturuluyor"))
+    stats = _isolated_remux(ctx, original, spec, d, s, attempts)
     ev_path = Path(stats["path"])
     einfo = opener.probe(ev_path, opener.OpenSpec("evidence"))
     v = opener.video_stream_info(einfo)
@@ -246,8 +273,13 @@ def ingest_job(ctx: jobs.JobContext, params: dict) -> dict:
                                 "fps": v.get("fps"), "codec": v.get("codec")})
 
     _set_status(eid, "donusturuluyor", "Çalışma kopyası hazırlanıyor")
-    pinfo = convert.build_proxy(ev_path, proxy_file(ev), v,
-                                lambda val, m=None: ctx.progress(0.45 + 0.45 * val, "Çalışma kopyası hazırlanıyor"))
+    try:
+        pinfo = worker.run("aiva.media.convert:proxy_task",
+                           {"src": str(ev_path), "dst": str(proxy_file(ev)), "vinfo": v}, ctx,
+                           on_progress=lambda val, m=None: ctx.progress(0.45 + 0.45 * val, "Çalışma kopyası hazırlanıyor"))
+    except (worker.WorkerCrashed, worker.WorkerStalled) as e:
+        _set_status(eid, "hata", f"Çalışma kopyası oluşturulamadı: {e}")
+        raise RuntimeError(f"Çalışma kopyası oluşturulamadı: {e}. Kayıpsız kopya hazır; yeniden dönüştürmeyi deneyin.") from e
 
     ctx.progress(0.92, "Önizleme şeridi")
     sprite = frames.make_sprite(ev_path, duration or 1.0, d / "sprite.jpg")
@@ -277,6 +309,31 @@ def ingest_job(ctx: jobs.JobContext, params: dict) -> dict:
     if params.get("analyze", settings.load()["analysis"]["auto_analyze"]):
         jobs.submit("analyze", {"evidence_id": eid}, case_id=ev["case_id"], evidence_id=eid)
     return {"evidence_id": eid, "strategy": spec.name, "duration": duration}
+
+
+def _isolated_remux(ctx: jobs.JobContext, original: Path, spec, d: Path, s, attempts) -> dict:
+    """Kayıpsız kopyayı ayrı süreçte çıkarır. Çökme ya da takılmada bir kez hataya dayanıklı
+    modla yeniden dener; o da olmazsa teşhis paketi yazıp anlaşılır bir hata verir."""
+    tries = [spec]
+    if any(k not in spec.options for k in opener.TOLERANT):
+        tries.append(opener.OpenSpec(spec.name + " + hata toleransı", spec.format, spec.offset,
+                                     {**spec.options, **opener.TOLERANT}, spec.raw, spec.fps))
+    problems: list[str] = []
+    for i, sp in enumerate(tries):
+        label = "Kayıpsız kopya oluşturuluyor" + (" (hataya dayanıklı mod)" if i else "")
+        try:
+            return worker.run("aiva.media.convert:remux_task",
+                              {"src": str(original), "spec": sp.to_dict(), "dst_base": str(d / "evidence")}, ctx,
+                              on_progress=lambda v, m=None, label=label: ctx.progress(0.12 + 0.33 * v, m or label))
+        except (worker.WorkerCrashed, worker.WorkerStalled) as e:
+            log.warning("Kayıpsız kopya başarısız (iş %s, %s): %s", ctx.job_id, sp.name, e)
+            problems.append(f"{sp.name}: {e}")
+            for ext in (".mkv", ".nut"):
+                (d / "evidence").with_suffix(ext).unlink(missing_ok=True)
+    (d / "teshis.txt").write_text(_diagnostics(original, s, attempts) + "\n\nKayıpsız kopya denemeleri:\n" +
+                                  "\n".join(f"  - {p}" for p in problems), encoding="utf-8")
+    raise RuntimeError("Dosya açıldı ama baştan sona kopyalanamadı (çözücü çöktü ya da takıldı). "
+                       "Dosyanın bir bölümü bozuk olabilir. Teşhis paketi Bilgi sekmesinde.")
 
 
 def _diagnostics(path: Path, s, attempts) -> str:

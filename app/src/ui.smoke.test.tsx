@@ -151,6 +151,17 @@ describe("arayüz duman testi", () => {
     expect(await screen.findByText("Otopark")).toBeTruthy();
   });
 
+  it("dönüştürme ekranı: hata ve yarıda kalma durumları", async () => {
+    const { default: Player } = await import("./components/Player");
+    const failed = { ...ev, status: "hata", status_detail: "Dosya açıldı ama baştan sona kopyalanamadı" } as any;
+    const { unmount } = wrap(<Player caseId={1} ev={failed} />);
+    expect(await screen.findByText("Yeniden dene")).toBeTruthy();
+    expect(screen.getByText(/baştan sona kopyalanamadı/)).toBeTruthy();
+    unmount();
+    wrap(<Player caseId={1} ev={{ ...ev, status: "donusturuluyor", status_detail: "Kayıpsız kopya oluşturuluyor" } as any} />);
+    expect(await screen.findByText("Yeniden başlat")).toBeTruthy(); // çalışan iş yoksa (yarıda kalmış)
+  });
+
   it("ilk açılış penceresi", async () => {
     const { default: FirstRun } = await import("./components/FirstRun");
     wrap(<FirstRun />);

@@ -17,23 +17,6 @@ import time
 from logging.handlers import RotatingFileHandler
 
 
-def _parent_watchdog(pid: int) -> None:
-    if os.name != "nt":
-        return
-    import ctypes
-    k32 = ctypes.windll.kernel32
-    SYNCHRONIZE = 0x00100000
-    h = k32.OpenProcess(SYNCHRONIZE, False, pid)
-    if not h:
-        return
-
-    def watch():
-        k32.WaitForSingleObject(h, 0xFFFFFFFF)
-        os._exit(0)
-
-    threading.Thread(target=watch, daemon=True, name="parent-watchdog").start()
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="aiva-engine")
     ap.add_argument("--port", type=int, default=int(os.environ.get("AIVA_PORT", "0")))
@@ -59,7 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         deps.set_token(os.environ["AIVA_TOKEN"])
     startup()
     if (ppid := os.environ.get("AIVA_PARENT_PID")) and ppid.isdigit():
-        _parent_watchdog(int(ppid))
+        from .util import parent_watchdog
+        parent_watchdog(int(ppid))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind((args.host, args.port))

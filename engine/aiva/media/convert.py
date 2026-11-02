@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from fractions import Fraction
 from pathlib import Path
 from typing import Callable
@@ -54,19 +55,21 @@ def remux_evidence(src: Path, spec: OpenSpec, dst_base: Path, progress: Progress
     raise ValueError(f"Kayıpsız kopya oluşturulamadı: {last_err}")
 
 
-def _raw_presentation_ranks(src: Path, spec: OpenSpec) -> list[int | None] | None:
-    """Ham akışta B-frame varsa paketlerin gösterim sırasını çözücüden öğrenir.
+PROBE_PACKETS = 600
 
-    Her pakete çözme sırası numarası pts olarak verilir; çözücü kareleri gösterim sırasında
-    bu etiketlerle döndürür. Sıralama zaten doğruysa None döner.
-    """
+
+def _scan_order(src: Path, spec: OpenSpec, limit: int | None, progress: Progress) -> tuple[list[int], int]:
+    size = max(1, src.stat().st_size)
     order: list[int] = []
     n = 0
+    last = time.monotonic()
     with open_container(src, spec) as ic:
         vin = ic.streams.video[0]
-        vin.thread_type = "SLICE"
+        vin.thread_type = "SLICE"  # erken çıkışta kilitlenmesin diye kare iş parçacığı yok
         for pkt in ic.demux(vin):
             if pkt.size:
+                if limit is not None and n >= limit:
+                    break
                 pkt.pts = n
                 pkt.dts = None
                 n += 1
@@ -76,6 +79,23 @@ def _raw_presentation_ranks(src: Path, spec: OpenSpec) -> list[int | None] | Non
                         order.append(int(fr.pts))
             except av.error.FFmpegError:
                 pass
+            if limit is None and time.monotonic() - last > 0.3:
+                last = time.monotonic()
+                progress(min(0.99, (pkt.pos or 0) / size), "Kare sırası çözülüyor (B-frame)")
+    return order, n
+
+
+def _raw_presentation_ranks(src: Path, spec: OpenSpec, progress: Progress = _noop) -> list[int | None] | None:
+    """Ham akışta B-frame varsa paketlerin gösterim sırasını çözücüden öğrenir.
+
+    Her pakete çözme sırası numarası pts olarak verilir; çözücü kareleri gösterim sırasında
+    bu etiketlerle döndürür. Önce yalnızca ilk PROBE_PACKETS paket çözülür: sıralama bozulmuyorsa
+    (CCTV akışlarının çoğu B-frame kullanmaz) dosyanın tamamı çözülmez. Sıralama doğruysa None döner.
+    """
+    order, n = _scan_order(src, spec, PROBE_PACKETS, progress)
+    if order == sorted(order):
+        return None
+    order, n = _scan_order(src, spec, None, progress)
     if order == sorted(order):
         return None
     rank: dict[int, int] = {j: k for k, j in enumerate(order)}
@@ -85,7 +105,13 @@ def _raw_presentation_ranks(src: Path, spec: OpenSpec) -> list[int | None] | Non
 def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progress) -> dict:
     size = max(1, src.stat().st_size)
     stats = {"packets": 0, "dropped": 0, "gaps": [], "video_codec": None, "audio": False}
-    ranks = _raw_presentation_ranks(src, spec) if spec.raw else None
+    ranks = None
+    if spec.raw:
+        ranks = _raw_presentation_ranks(src, spec, lambda v, m=None: progress(0.5 * v, m))
+        base, span = (0.5, 0.5) if ranks else (0.0, 1.0)
+    else:
+        base, span = 0.0, 1.0
+    last_beat = time.monotonic()
     delay = max((j - r for j, r in enumerate(ranks) if r is not None), default=0) if ranks else 0
     with open_container(src, spec) as ic:
         vin = ic.streams.video[0]
@@ -162,8 +188,9 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
                     stats["packets"] += 1
                 except (ValueError, av.error.FFmpegError):
                     stats["dropped"] += 1
-                if stats["packets"] % 500 == 0 and pkt.pos and pkt.pos > 0:
-                    progress(min(0.99, pkt.pos / size), None)
+                if time.monotonic() - last_beat > 0.3:  # zamana bağlı: takılma bekçisi ilerlemeyi görür
+                    last_beat = time.monotonic()
+                    progress(base + span * min(0.99, (pkt.pos or 0) / size), None)
     keys = stats.pop("_keys", [])
     stats["keyframe_interval"] = round((keys[-1] - keys[0]) / (len(keys) - 1), 3) if len(keys) > 1 else None
     if stats["packets"] == 0:
@@ -199,16 +226,16 @@ def _remux_proxy(src: Path, dst: Path, progress: Progress) -> dict:
             omap[a.index] = out.add_stream_from_template(a)
             ins.append(a)
         dur = float(ic.duration / av.time_base) if ic.duration else None
-        n = 0
+        beat = time.monotonic()
         for pkt in ic.demux(*ins):
             if pkt.size == 0 or pkt.dts is None:
                 continue
             t = float(pkt.dts * pkt.time_base)
             pkt.stream = omap[pkt.stream.index]
             out.mux(pkt)
-            n += 1
-            if dur and n % 300 == 0:
-                progress(min(0.99, t / dur), None)
+            if time.monotonic() - beat > 0.3:
+                beat = time.monotonic()
+                progress(min(0.99, t / dur) if dur else 0.0, None)
     return {"mode": "yeniden_paketleme", "encoder": None}
 
 
@@ -229,8 +256,11 @@ def _transcode_proxy(src: Path, dst: Path, vinfo: dict, progress: Progress, max_
                 ost.codec_context.bit_rate = 0
             ost.options = encoders.options_for(enc)
             last_pts = None
-            n = 0
+            beat = time.monotonic()
             for frame in ic.decode(vin):
+                if time.monotonic() - beat > 0.3:
+                    beat = time.monotonic()
+                    progress(min(0.99, float(frame.time or 0) / dur) if dur else 0.0, None)
                 if frame.pts is None or (last_pts is not None and frame.pts <= last_pts):
                     continue
                 last_pts = frame.pts
@@ -239,9 +269,6 @@ def _transcode_proxy(src: Path, dst: Path, vinfo: dict, progress: Progress, max_
                 f2.time_base = vin.time_base
                 for pkt in ost.encode(f2):
                     out.mux(pkt)
-                n += 1
-                if dur and n % 100 == 0:
-                    progress(min(0.99, float(frame.time or 0) / dur), None)
             for pkt in ost.encode(None):
                 out.mux(pkt)
     return {"mode": "kodlama", "encoder": enc, "encoder_label": encoders.LABELS.get(enc, enc),
@@ -283,3 +310,26 @@ def verify_decode(path: Path, max_seconds: float | None = None) -> dict:
             if max_seconds and last_t > max_seconds:
                 break
     return {"frames": frames, "errors": errors, "last_time": last_t}
+
+
+# --- yalıtılmış süreçte çalıştırılan görevler (aiva.worker) ------------------------------
+
+def remux_task(src: str, spec: dict, dst_base: str, progress: Progress) -> dict:
+    return remux_evidence(Path(src), OpenSpec.from_dict(spec), Path(dst_base), progress)
+
+
+def proxy_task(src: str, dst: str, vinfo: dict, progress: Progress) -> dict:
+    return build_proxy(Path(src), Path(dst), vinfo, progress)
+
+
+def _test_crash(progress: Progress) -> None:
+    """Yalnızca testler için: kodun içinde çöken bir işlemi taklit eder."""
+    import os
+    progress(0.1, None)
+    os._exit(3)
+
+
+def _test_hang(progress: Progress) -> None:
+    """Yalnızca testler için: ilerleme bildirmeden takılan bir işlemi taklit eder."""
+    progress(0.1, None)
+    time.sleep(3600)
