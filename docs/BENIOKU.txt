@@ -1,0 +1,44 @@
+AI VIDEO ANALİZİ — HIZLI BAŞLANGIÇ
+==================================
+
+Kamera kayıtlarını bilgisayarınızda inceleyen, ücretsiz ve açık kaynaklı bir araçtır.
+Kurulum, hesap ya da internet gerektirmez (yapay zekâya soru sormak hariç).
+
+ÇALIŞTIRMA
+1. Bu klasörü yazılabilir bir yere çıkarın (Masaüstü, D:\, USB bellek…).
+   "C:\Program Files" gibi korumalı klasörlerde veriler AppData altına yazılır.
+2. AIVideoAnalizi.exe dosyasını çalıştırın.
+3. "Yeni vaka" oluşturun ve kamera kayıtlarını pencereye sürükleyip bırakın.
+
+Gereksinimler: Windows 10/11 (64 bit), Microsoft Edge WebView2 (Windows 11'de hazır gelir).
+Ekran kartı varsa (NVIDIA, AMD ya da Intel) analiz onu kullanır; yoksa işlemci kullanılır.
+
+NELER YAPAR?
+- VLC'nin açamadığı DVR dosyaları dahil kayıtları içeriğine bakarak tanır ve dönüştürür
+  (MP4, AVI, MKV, WMV, FLV, TS, PS, Dahua DAV, Hikvision, ham H.264/H.265, başlığı bozuk dosyalar…).
+- Orijinal dosyayı değiştirmez; SHA-256 değerini kaydeder, kayıpsız bir kopya ve oynatma kopyası üretir.
+- Hareket, kişi, araç, yüz ve plaka analizini tamamen bilgisayarınızda yapar.
+- Hatalı kamera saatini ekrandaki saat yazısını okuyarak ya da sizin vereceğiniz bir referansla düzeltir;
+  tüm sonuçlar düzeltilmiş gerçek saatle gösterilir.
+- Türkçe soru sorabilirsiniz: "14:00–15:00 arası kırmızı montlu biri geçti mi?"
+  "Hızlı" mod tamamen yereldir; "Doğrulamalı" ve "Derin" modlar seçtiğiniz yapay zekâ modelini kullanır.
+- Kareyi iyileştirir/büyütür; AI ile büyütülen görüntüler filigranla işaretlenir.
+- Bulguları onaylayıp PDF vaka raporu üretir.
+
+YAPAY ZEKÂ (İSTEĞE BAĞLI)
+Ayarlar > Yapay zekâ bölümüne OpenRouter (openrouter.ai) API anahtarınızı girin.
+Ücretsiz modeller de seçilebilir. Ücretli modellerin maliyeti kendi OpenRouter hesabınızdan düşer;
+her sorudan önce tahmini maliyet gösterilir.
+
+GİZLİLİK
+- Hesap, kayıt, telemetri, kullanım istatistiği yoktur.
+- Tüm veriler bu klasördeki "data" klasöründedir. Silmek için "data" klasörünü silmeniz yeterlidir.
+- Dışarıya yalnızca sizin başlattığınız yapay zekâ istekleri (seçilen kareler/kısa kesitler) gider.
+- API anahtarı Windows tarafından şifrelenir; klasör başka bir bilgisayara taşınırsa yeniden girilmelidir.
+
+ÖNEMLİ
+Yapay zekâ sonuçları (eşleşmeler, yüz benzerliği, plaka okuması, AI ile büyütülmüş görüntüler)
+soruşturma ipucudur; kesin bulgu sayılmadan önce kontrol edilmelidir. Kayıtların kullanımına ilişkin
+yasal sorumluluk kullanıcıya aittir.
+
+Lisans: GPL-3.0 (LICENSE.txt). Üçüncü taraf bileşenler: THIRD_PARTY_NOTICES.txt

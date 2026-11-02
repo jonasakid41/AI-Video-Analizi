@@ -1,0 +1,29 @@
+# Kullanıcı verisi ve üretilen dosyalar
+/data/
+/dist/
+/build/
+/testdata/corpus/
+/models/**/*.onnx
+/models/**/*.json
+/models/**/README.md
+
+# Python
+__pycache__/
+*.pyc
+engine/.venv/
+engine/build/
+engine/dist/
+.pytest_cache/
+
+# Node / Tauri
+node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/binaries/
+
+# Editör
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
+/testdata/real/

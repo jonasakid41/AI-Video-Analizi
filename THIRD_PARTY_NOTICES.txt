@@ -1,0 +1,46 @@
+AI Video Analizi — Üçüncü taraf bileşenler ve lisansları
+=========================================================
+
+AI Video Analizi, GNU Genel Kamu Lisansı sürüm 3 (GPL-3.0-or-later) ile dağıtılır (LICENSE.txt).
+Aşağıdaki bileşenleri içerir ya da kullanır. Her bileşen kendi lisansına tabidir.
+
+VİDEO / GÖRÜNTÜ İŞLEME
+- FFmpeg (PyAV ile birlikte gelen kitaplıklar) — LGPL-2.1+ / GPL-2.0+ (libx264, libx265 gibi GPL
+  bileşenler içerir). Kaynak: https://ffmpeg.org  —  Derleme: https://github.com/PyAV-Org/pyav-ffmpeg
+- PyAV — BSD-3-Clause — https://github.com/PyAV-Org/PyAV
+- OpenCV — Apache-2.0 — https://opencv.org
+- NumPy — BSD-3-Clause — https://numpy.org
+- Pillow — MIT-CMU (HPND) — https://python-pillow.org
+
+YEREL YAPAY ZEKÂ ÇALIŞMA ORTAMI VE MODELLERİ
+- ONNX Runtime (DirectML) — MIT — https://onnxruntime.ai
+- DirectML — MIT — https://github.com/microsoft/DirectML
+- YOLOX (nesne tespiti, models/detector) — Apache-2.0 — https://github.com/Megvii-BaseDetection/YOLOX
+- YuNet (yüz tespiti, models/face) — MIT — https://github.com/opencv/opencv_zoo
+- SFace (yüz tanıma vektörü, models/face) — Apache-2.0 — https://github.com/opencv/opencv_zoo
+- CLIP ViT-B/32 (görsel arama, models/clip; ONNX dönüşümü Xenova) — MIT — https://github.com/openai/CLIP
+- Real-ESRGAN (büyütme, models/upscale; ONNX dönüşümü SceneWorks) — BSD-3-Clause
+  https://github.com/xinntao/Real-ESRGAN
+- RapidOCR ve PP-OCR modelleri — Apache-2.0 — https://github.com/RapidAI/RapidOCR
+- Hugging Face tokenizers — Apache-2.0 — https://github.com/huggingface/tokenizers
+
+ANALİZ MOTORU (PYTHON)
+- Python — PSF License — https://www.python.org
+- FastAPI — MIT; Starlette — BSD-3-Clause; Uvicorn — BSD-3-Clause; Pydantic — MIT
+- HTTPX — BSD-3-Clause; websockets — BSD-3-Clause
+- ReportLab — BSD-3-Clause
+- Shapely — BSD-3-Clause; pyclipper — MIT; OmegaConf — BSD-3-Clause; PyYAML — MIT
+- PyInstaller (paketleme) — GPL-2.0 (paketlenen uygulamalara özel istisnayla)
+
+MASAÜSTÜ ARAYÜZÜ
+- Tauri — MIT / Apache-2.0 — https://tauri.app
+- Microsoft Edge WebView2 Runtime — Microsoft yazılım lisansı (Windows ile gelir)
+- React — MIT; TanStack Query — MIT; Zustand — MIT; Tailwind CSS — MIT; Lucide — ISC
+
+BULUT YAPAY ZEKÂ (İSTEĞE BAĞLI)
+- OpenRouter (https://openrouter.ai) üzerinden kullanıcının seçtiği modeller. Uygulama hiçbir modeli
+  kendisi barındırmaz; istekler yalnızca kullanıcı soru sorduğunda, kullanıcının kendi API anahtarıyla gönderilir.
+
+Bilinçli olarak DAHİL EDİLMEYENLER
+- Ultralytics YOLO (AGPL-3.0), RF-DETR XL/2XL (PML-1.0), CodeFormer (ticari olmayan lisans),
+  yüz "restorasyonu" modelleri (görüntüye gerçekte olmayan yüz ayrıntısı ürettikleri için).

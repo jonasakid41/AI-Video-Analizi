@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0f15;
+  --color-panel: #0f161f;
+  --color-panel-2: #141d28;
+  --color-panel-3: #1a2533;
+  --color-line: #233243;
+  --color-line-2: #2e4156;
+  --color-text: #e3eaf2;
+  --color-muted: #8a9bb0;
+  --color-faint: #5b6b7f;
+  --color-accent: #38bdf8;
+  --color-accent-strong: #0ea5e9;
+  --color-warn: #f59e0b;
+  --color-danger: #f05252;
+  --color-ok: #34d399;
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+input,
+textarea,
+select,
+.selectable {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #263547;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #33475e;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.35) 0 4px, transparent 4px 8px);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.25), transparent);
+  background-size: 200px 100%;
+  animation: shimmer 1.2s linear infinite;
+}
