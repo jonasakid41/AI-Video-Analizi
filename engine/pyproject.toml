@@ -1,6 +1,6 @@
 [project]
 name = "aiva-engine"
-version = "0.1.6"
+version = "0.1.7"
 description = "AI Video Analizi — yerel analiz motoru"
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"

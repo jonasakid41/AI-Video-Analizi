@@ -145,3 +145,22 @@ def test_review_notes_are_used_by_questions(tree_case):
     wait_all(api, cid)
     ans = api.get(f"/api/queries/{q['query_id']}").json()["answer"]
     assert "Yapay zekâ ön inceleme notları" in ans and "kutu" in ans
+
+
+def test_ai_flags_moments_local_analysis_missed(data_dir):
+    from aiva import cases, db, results
+    from aiva.ai import scan
+    from aiva.util import now_iso
+    c = cases.create("karşılaştırma")
+    eid = db.insert("evidence", {"case_id": c["id"], "original_name": "x.mp4", "status": "hazir", "duration": 60.0,
+                                 "created_at": ""})
+    db.insert("detections", {"evidence_id": eid, "track_id": 1, "t": 5.0, "cls": "person", "conf": 0.9,
+                             "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.3})
+    for t, people, vehicles in ((5.0, 3, 0), (20.0, 1, 1), (40.0, 0, 0)):
+        db.insert("ai_notes", {"evidence_id": eid, "t": t, "text": f"{people} kişi", "notable": 1, "people": people,
+                               "vehicles": vehicles, "model": "x", "created_at": now_iso()})
+    assert scan.flag_misses(eid) == 2
+    assert scan.flag_misses(eid) == 2  # yeniden hesaplanır, birikmez
+    evs = [e for e in results.events(eid) if e["kind"] == "yz"]
+    assert [round(e["t_peak"]) for e in evs] == [5, 20]
+    assert "2 kişi" in evs[0]["label"] and "1 kişi, 1 araç" in evs[1]["label"] and not evs[0]["ignorable"]

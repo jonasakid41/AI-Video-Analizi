@@ -250,9 +250,9 @@ export default function Timeline({ ev, videoRef, findings }: { ev: Evidence; cas
                 <div className="flex items-start gap-1.5">
                   <span className="mt-1 size-2 shrink-0 rounded-sm" style={{ background: KIND_STYLE[hoverEvent.kind]?.color }} />
                   <span>
-                    {hoverEvent.kind === "nesne" ? hoverEvent.label : KIND_STYLE[hoverEvent.kind]?.name}
+                    {hoverEvent.kind === "nesne" || hoverEvent.kind === "yz" ? hoverEvent.label : KIND_STYLE[hoverEvent.kind]?.name}
                     {hoverEvent.ignorable && <span className="text-faint"> · önemsiz</span>}
-                    {hoverEvent.kind === "belirsiz" && <span className="text-warn"> · incelenmeli</span>}
+                    {(hoverEvent.kind === "belirsiz" || hoverEvent.kind === "yz") && <span className="text-warn"> · incelenmeli</span>}
                   </span>
                 </div>
               )}

@@ -13,7 +13,7 @@ const ev = {
   strategy: { name: "Doğrudan açma", denemeler: [{ strateji: "Doğrudan açma", basarili: true, cozulen_kare: 30, hata: "" }, { strateji: "Hata toleranslı", basarili: false, cozulen_kare: 0, hata: "x" }] },
   analysis_info: {
     donusturme: { container: "matroska", gaps: [], dropped: 0, keyframe_interval: 2, proxy: { mode: "kodlama", encoder: "h264_nvenc", encoder_label: "NVIDIA NVENC" }, sprite: { times: [1, 2], tile_w: 160, tile_h: 90, cols: 10, count: 2 } },
-    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, hareket_ozeti: { cevre: 4, nesne: 2 }, goruntu: { renksiz_oran: 1, dusuk_isik_oran: 0.8, iyilestirilen_kare: 40, yakinlastirma_tespiti: 12 }, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
+    analiz: { sure_sn: { toplam: 4.1 }, aygit: "DmlExecutionProvider", dedektor: "yolox_s", analiz_edilen_kare: 60, aktif_bolum: 1, aktif_sure_sn: 20, hareket_ozeti: { cevre: 4, nesne: 2 }, goruntu: { renksiz_oran: 1, dusuk_isik_oran: 0.8, iyilestirilen_kare: 40, yakinlastirma_tespiti: 12, parcali_tarama: { izgara: 2, kare: 30 } }, birlesen_iz: 3, izler: { "kişi": 2 }, iz_sayisi: 2, yuz_sayisi: 3, kisi_kumesi: 1, plakalar: ["34 ABC 123"], yuz_tanima: true, plaka_okuma: true, gorsel_arama: true },
   },
   time: { kamera_saati_var: true, kaynak: "osd", duzeltme_farki_sn: -222, gunluk_kayma_sn: null, parca_sayisi: 2, bosluklar: [{ t: 18, jump: 600 }] },
   camera_start: "2026-10-28T14:33:42", real_start: "2026-10-28T14:30:00",
@@ -153,7 +153,8 @@ describe("arayüz duman testi", () => {
     expect(screen.getByRole("button", { name: "Yeniden incele" })).toBeTruthy();
     expect(screen.getByText(/NVIDIA NVENC/)).toBeTruthy();
     expect(screen.getByText(/ağaç\/bitki\/gölge .*\(önemsiz\)/)).toBeTruthy();
-    expect(screen.getByText(/siyah-beyaz \(gece\/IR\).*yakınlaştırmayla 12 ek tespit/)).toBeTruthy();
+    expect(screen.getByText(/siyah-beyaz \(gece\/IR\)/)).toBeTruthy();
+    expect(screen.getByText(/parçalı tarama 2×2 \(30 kare\).*yakınlaştırmayla 12 ek tespit.*3 kopuk iz birleştirildi/)).toBeTruthy();
   });
 
   it("ayarlar penceresi: tüm sekmeler", async () => {

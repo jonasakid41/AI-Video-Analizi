@@ -45,6 +45,10 @@ engine\.venv\Scripts\python scripts\build_release.py     # dist\AIVideoAnalizi (
   - Yüksek çözünürlükte hareket 640 px'te ölçülür (`motion.meter_width`).
   - Süren küçük lekeler bölümü aktif sayar (`MIN_BLOB_PX`). Açıklanamayan hareket bölgesi yakınlaştırılarak yeniden taranır (`analysis._zoom_detect`).
   - Siyah-beyaz karede renk yerine ton yazılır (`colors.describe_gray`); `lowlight.frame_stats` tanır.
+  - 1080p ve üstünde parçalı tarama yapılır (`Detector.detect_tiled`, `tile_grid`). Küçük nesne bulunursa `TILE_HOT` sn her kare parçalı taranır.
+  - Kopuk izler `analysis._relink` ve `_merge_tracks` ile birleştirilir. Veritabanı güncellemeleri `evidence_id` ile sınırlanmalı, çünkü iz kimlikleri analiz başına yereldir.
+  - Ön incelemede yapay zekâ yerelden fazla kişi/araç saydıysa `scan.flag_misses` "yz" olayı ekler.
+  - YOLOX-M denendi; küçük nesnede fayda göstermedi, pakete eklenmedi.
 - **Model cevapları:** Model planı ve doğrulama cevabı şemaya uymayabilir. Bu yüzden her zaman `planner.sanitize` ve `verify.verdict` üzerinden geçer; okunurken de `query.get` uygular.
 - **Kare parametresi:** Medya isteklerinde token `?k=` ile gider; `t` her zaman zaman parametresidir.
 - **Lisans:** Lisans GPL-3.0'dır. AGPL (Ultralytics) ya da ticari olmayan lisanslı modeller eklenmemeli. Yüz "restorasyonu" modelleri bilerek yoktur.

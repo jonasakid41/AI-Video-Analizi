@@ -10,6 +10,7 @@ Seçilen anlar ardından tam çözünürlükte doğrulanır (verify).
 
 from __future__ import annotations
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -329,8 +330,48 @@ def review_job(ctx: jobs.JobContext, params: dict) -> dict:
         c.execute("DELETE FROM ai_notes WHERE evidence_id = ?", (eid,))
         c.executemany("INSERT INTO ai_notes (evidence_id, t, text, notable, people, vehicles, model, created_at) "
                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
-    return {"kare": len(times), "not": len(rows), "onemli": sum(r[3] for r in rows), "maliyet_usd": round(usage["cost"], 4),
-            "hata": usage["errors"][:3]}
+    missed = flag_misses(eid)
+    return {"kare": len(times), "not": len(rows), "onemli": sum(r[3] for r in rows), "kacirilan_an": missed,
+            "maliyet_usd": round(usage["cost"], 4), "hata": usage["errors"][:3]}
+
+
+MISS_WINDOW = 1.5  # sn: notun anında yerel tespitler bu kadar yakında aranır
+VEHICLE_CLASSES = ("car", "truck", "bus", "motorcycle", "bicycle")
+
+
+def flag_misses(evidence_id: int) -> int:
+    """Yapay zekânın gördüğü ama yerel analizin kaçırdığı anlar: notta sayılan kişi/araç, o anda yerel olarak
+    bulunandan fazlaysa zaman çizelgesine "yapay zekâ gördü" olayı eklenir (yeniden analizde yeniden hesaplanır)."""
+    olds = [r["id"] for r in db.rows("SELECT id, info FROM segments WHERE evidence_id = ? AND kind = 'olay'", (evidence_id,))
+            if (loads(r["info"], {}) or {}).get("tur") == "yz"]
+    flagged: list[tuple[float, int, int, str]] = []
+    for n in db.rows("SELECT t, text, people, vehicles FROM ai_notes WHERE evidence_id = ? AND notable = 1 ORDER BY t",
+                     (evidence_id,)):
+        near = db.rows("SELECT cls, COUNT(DISTINCT track_id) AS k FROM detections WHERE evidence_id = ? "
+                       "AND t BETWEEN ? AND ? GROUP BY cls", (evidence_id, n["t"] - MISS_WINDOW, n["t"] + MISS_WINDOW))
+        local_p = sum(r["k"] for r in near if r["cls"] == "person")
+        local_v = sum(r["k"] for r in near if r["cls"] in VEHICLE_CLASSES)
+        mp = max(0, (n["people"] or 0) - local_p)
+        mv = max(0, (n["vehicles"] or 0) - local_v)
+        if mp or mv:
+            flagged.append((n["t"], mp, mv, n["text"]))
+    events: list[list] = []
+    for t, mp, mv, text in flagged:  # birbirine yakın anlar tek olay
+        if events and t - events[-1][1] <= 6.0:
+            ev = events[-1]
+            ev[1], ev[2], ev[3] = t, max(ev[2], mp), max(ev[3], mv)
+        else:
+            events.append([t, t, mp, mv, text])
+    out = []
+    for a, b, mp, mv, text in events:
+        what = ", ".join(x for x in (f"{mp} kişi" if mp else "", f"{mv} araç" if mv else "") if x)
+        info = {"tur": "yz", "etiket": f"yapay zekâ {what} gördü (yerel analiz kaçırmış olabilir)",
+                "ayrinti": text[:300], "onemsiz": False, "t_tepe": round(a, 3)}
+        out.append((evidence_id, "olay", round(max(0.0, a - 1.0), 3), round(b + 1.0, 3), json.dumps(info, ensure_ascii=False)))
+    with db.tx() as c:
+        c.executemany("DELETE FROM segments WHERE id = ?", [(i,) for i in olds])
+        c.executemany("INSERT INTO segments (evidence_id, kind, t0, t1, info) VALUES (?, ?, ?, ?, ?)", out)
+    return len(out)
 
 
 def notes(evidence_id: int, m: TimeMapping | None = None) -> list[dict]:

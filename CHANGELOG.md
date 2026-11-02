@@ -1,5 +1,19 @@
 # Sürüm geçmişi
 
+## 0.1.7 — 3 Kasım 2026
+
+Yerel tespit genel olarak iyileştirildi: uzaktaki ve hareketsiz küçük nesneler bulunuyor, kopuk izler birleşiyor, yapay zekânın gördüğü ama yerel analizin kaçırdığı anlar işaretleniyor.
+
+- **Parçalı tarama:**
+  - Dedektör kareyi 640 piksele küçülttüğü için 1080p ve üstünde uzaktaki küçük nesneler kayboluyordu. Hareket etmeyenler (duran kişi, park etmiş araç) yakınlaştırmaya da girmiyordu.
+  - Kare artık örtüşen parçalara (1080p'de 2×2, 1440p ve üstünde 3×3) bölünerek de taranıyor. Parçalı tarama tam karenin göremediği bir şey bulursa sonraki 5 saniye her kare böyle taranıyor; bulmazsa 2 saniyede bir.
+  - Ekran kartı yoksa daha seyrek yapılıyor. Ayarlar > Yerel analiz'den kapatılabiliyor.
+  - Ölçüm (gerçek yaya görüntüsü, duran uzak kişiler): 1080p'de 0 → 5, 4K'da 0 → 6 kişi izi. Hareketli uzak kişilerde 4K'da tespit %56 arttı.
+- **Kopuk izlerin birleştirilmesi:** Kişi bir direğin ya da başka birinin arkasından çıkınca takip yeni iz açıyor, kişi sayısı şişiyordu. Kısa bir aradan sonra beklenen konumda başlayan, boyutu ve renk dağılımı benzeyen aynı sınıftan iz öncekine bağlanıyor.
+- **Yapay zekâ ile karşılaştırma:** Ön incelemede yapay zekânın saydığı kişi/araç o anda yerel olarak bulunandan fazlaysa, zaman çizelgesine mor bir "yapay zekâ gördü (yerel analiz kaçırmış olabilir)" olayı ekleniyor. Yeniden analizden sonra yeniden hesaplanıyor.
+- **Yakınlaştırma:** Kare başına büyütülerek yeniden taranan hareket bölgesi 2'den 4'e çıktı.
+- **Bilgi sekmesi:** "Tespit desteği" satırında parçalı tarama, yakınlaştırma, kontrast iyileştirmesi ve birleştirilen izler gösteriliyor.
+- **Denenen ama eklenmeyen:** Daha büyük YOLOX-M modeli (Apache-2.0) aynı videolarda daha fazla kişi bulmadı, uzak kişilerde daha azını buldu ve iki kat yavaştı. Pakete eklenmedi; küçük nesne sorunu model gücünden değil küçültmeden kaynaklanıyor.
 ## 0.1.6 — 2 Kasım 2026
 
 Yapay zekâ artık videonun tamamına bakıyor; CLI'da model seçilebiliyor ve varsayılan en güçlü model.

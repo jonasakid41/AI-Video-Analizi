@@ -26,9 +26,18 @@ function pictureText(g?: AnalysisStats["goruntu"]): string {
     g.renksiz_oran >= 0.6 ? "siyah-beyaz (gece/IR) — renk yerine ton kaydedildi" : g.renksiz_oran >= 0.1 ? `kısmen siyah-beyaz (${pct(g.renksiz_oran)})` : "renkli",
   ];
   if (g.dusuk_isik_oran >= 0.1) parts.push(`düşük ışık ${pct(g.dusuk_isik_oran)}`);
-  if (g.iyilestirilen_kare) parts.push(`${g.iyilestirilen_kare} kare kontrast artırılarak tarandı`);
-  if (g.yakinlastirma_tespiti) parts.push(`yakınlaştırmayla ${g.yakinlastirma_tespiti} ek tespit`);
   return parts.join(" · ");
+}
+
+/** Küçük/uzak/karanlık nesneler ve kopuk izler için yerel analizin kullandığı destekler */
+function supportText(stats: AnalysisStats): string {
+  const g = stats.goruntu;
+  const parts: string[] = [];
+  if (g?.parcali_tarama?.izgara) parts.push(`parçalı tarama ${g.parcali_tarama.izgara}×${g.parcali_tarama.izgara} (${g.parcali_tarama.kare} kare)`);
+  if (g?.yakinlastirma_tespiti) parts.push(`yakınlaştırmayla ${g.yakinlastirma_tespiti} ek tespit`);
+  if (g?.iyilestirilen_kare) parts.push(`${g.iyilestirilen_kare} kare kontrast artırılarak tarandı`);
+  if (stats.birlesen_iz) parts.push(`${stats.birlesen_iz} kopuk iz birleştirildi`);
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 export default function InfoPanel({ caseId, ev }: { caseId: number; ev?: Evidence }) {
@@ -169,6 +178,7 @@ function EvidenceInfo({ ev }: { ev: Evidence }) {
                       .map(([k, v]) => `${KIND_STYLE[k]?.name ?? k} ${fmtDuration(v)}${IGNORABLE_KINDS.includes(k) ? " (önemsiz)" : ""}`).join(" · ")
                   : "—"],
                 ["Görüntü", pictureText(stats.goruntu)],
+                ["Tespit desteği", supportText(stats)],
                 ["Süre / aygıt", `${stats.sure_sn.toplam?.toFixed(1)} sn · ${stats.aygit === "DmlExecutionProvider" ? "GPU (DirectML)" : "CPU"}`],
               ]}
             />

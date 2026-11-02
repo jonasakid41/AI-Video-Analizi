@@ -64,6 +64,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "analysis": {
         "auto_analyze": True,
+        "tile_detection": True,  # yüksek çözünürlükte parçalı tarama (uzaktaki/hareketsiz küçük nesneler)
         "sample_fps": 2.0,
         "scan_fps": 1.0,
         "detector": "yolox_s",

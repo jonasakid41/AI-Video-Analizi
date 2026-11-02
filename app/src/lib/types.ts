@@ -71,7 +71,14 @@ export interface AnalysisStats {
   kisi_kumesi: number;
   plakalar: string[];
   hareket_ozeti?: Record<string, number>;
-  goruntu?: { renksiz_oran: number; dusuk_isik_oran: number; iyilestirilen_kare: number; yakinlastirma_tespiti: number };
+  goruntu?: {
+    renksiz_oran: number;
+    dusuk_isik_oran: number;
+    iyilestirilen_kare: number;
+    yakinlastirma_tespiti: number;
+    parcali_tarama?: { izgara: number; kare: number };
+  };
+  birlesen_iz?: number;
   yuz_tanima: boolean;
   plaka_okuma: boolean;
   gorsel_arama: boolean;
@@ -173,7 +180,7 @@ export interface DetectionRow {
   h: number;
 }
 
-export type MotionKind = "nesne" | "cevre" | "isik" | "parazit" | "belirsiz";
+export type MotionKind = "nesne" | "cevre" | "isik" | "parazit" | "belirsiz" | "yz";
 
 export interface MotionEvent {
   t0: number;
@@ -421,6 +428,7 @@ export interface Settings {
     faces: boolean;
     plates: boolean;
     clip: boolean;
+    tile_detection?: boolean;
     motion_threshold: number;
     device: string;
   };

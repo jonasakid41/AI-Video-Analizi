@@ -451,6 +451,12 @@ function AnalysisTab({ s, save }: { s: Settings; save: (p: Record<string, unknow
         <Toggle checked={a.faces} onChange={(v) => set("faces", v)} label="Yüz tespiti ve kişi gruplama" hint="Yüzler bilgisayarda işlenir; buluta gönderilmez." />
         <Toggle checked={a.plates} onChange={(v) => set("plates", v)} label="Plaka okuma" />
         <Toggle checked={a.clip} onChange={(v) => set("clip", v)} label="Görsel arama indeksi" hint="“Kırmızı mont”, “beyaz kamyonet” gibi aramaları yerelde mümkün kılar." />
+        <Toggle
+          checked={a.tile_detection ?? true}
+          onChange={(v) => set("tile_detection", v)}
+          label="Yüksek çözünürlükte parçalı tarama"
+          hint="1080p ve üstünde kare parçalara bölünerek de taranır. Uzaktaki ve hareketsiz küçük kişi/araçlar (duran kişi, park etmiş araç) bulunur; analiz biraz uzar."
+        />
       </div>
       <p className="text-[11.5px] text-faint">Değişiklikler yeni analizlerde geçerli olur. Mevcut videoyu “Bilgi” sekmesinden yeniden analiz edebilirsiniz.</p>
     </div>

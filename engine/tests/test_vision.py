@@ -57,7 +57,9 @@ def test_far_away_people_found_by_zoom(api_client, tmp_path):
     people = [t for t in tracks if t["cls"] == "person" and t["n"] >= 3]
     # Eski kurallarla (320 px hareket taraması, yakınlaştırma yok) bu videoda yalnızca 1 kısa iz çıkıyordu
     assert len(people) >= 5, (len(people), st["goruntu"], st["aktif_sure_sn"])
-    assert st["goruntu"]["yakinlastirma_tespiti"] > 0 and st["aktif_sure_sn"] > 10
+    # Küçük nesneyi hareket yakınlaştırması ya da (1080p'de) parçalı tarama yakalar
+    assert st["goruntu"]["yakinlastirma_tespiti"] + st["goruntu"]["parcali_tarama"]["kare"] > 0
+    assert st["aktif_sure_sn"] > 10
 
 
 @needs_models
@@ -100,3 +102,55 @@ def test_unrecognized_motion_becomes_candidate(api_client, tmp_path):
     assert hidden and hidden[0].box and 7 <= hidden[0].t <= 14, [(x.id, x.t) for x in cands]
     assert hidden[0].box[2] >= 0.14  # hareket kutusu doğrulamada çevresiyle görünecek kadar geniş
     assert any("tespit edemedi" in n for n in notes) or any(x.kind == "iz" for x in cands)
+
+
+def test_tile_grid_by_resolution():
+    from aiva.analyze.detector import tile_grid
+    assert [tile_grid(w) for w in (640, 1280, 1920, 2560, 3840)] == [0, 0, 2, 3, 3]
+
+
+def test_relink_joins_track_split_by_occlusion():
+    from aiva.analysis import TrackData, _merge_tracks, _relink
+    from aiva.analyze.tracker import Track
+    red = np.full((80, 40, 3), (40, 40, 200), np.uint8)
+    blue = np.full((80, 40, 3), (200, 60, 30), np.uint8)
+
+    def track(i, t0, t1, x0, x1, crop):
+        tr = Track(i, "person", t0, t1, (0, 0, 1, 1), hits=4, best_conf=0.8, cls_votes={"person": 3.0})
+        td = TrackData(best_score=1.0, best_crop=crop)
+        n = 4
+        td.path = [[t0 + (t1 - t0) * k / (n - 1), x0 + (x1 - x0) * k / (n - 1), 0.4, 0.05, 0.2] for k in range(n)]
+        return tr, td
+
+    # Kırmızı kişi 0–3 sn sağa yürüyor, direğin arkasında 1,5 sn kayboluyor, beklenen yerde çıkıyor
+    a, ta = track(1, 0.0, 3.0, 0.10, 0.40, red)
+    b, tb = track(2, 4.5, 7.0, 0.55, 0.80, red)
+    c, tc = track(3, 4.0, 6.0, 0.10, 0.20, blue)  # başka biri: farklı yer ve renk
+    root = _relink([a, b, c], {1: ta, 2: tb, 3: tc})
+    assert root == {2: 1}
+    from aiva import db
+    out = _merge_tracks(-1, [a, b, c], {1: ta, 2: tb, 3: tc}, root)
+    assert [t.id for t in out] == [1, 3] and a.last_t == 7.0 and a.hits == 8 and len(ta.path) == 8
+    db.close_thread_connection()
+
+
+@needs_models
+@needs_vtest
+def test_standing_far_people_found_by_tiling(api_client, tmp_path):
+    # Hareket yoksa bölüm seyrek taranır ve yakınlaştırma çalışmaz: uzaktaki duran kişiler yalnızca
+    # parçalı taramayla bulunur (eskiden 1080p karede kayboluyordu)
+    api, wait_all = api_client
+    from aiva import db, jobs
+    p = synth.build_from_real(tmp_path / "duran.mp4", VTEST, seconds=30, scale=0.45, canvas=(1920, 1080), freeze=12)
+    c = api.post("/api/cases", json={"name": "Duran kişiler"}).json()
+    eid = api.post(f"/api/cases/{c['id']}/evidence", json={"paths": [str(p)]}).json()["ids"][0]
+    wait_all(api, c["id"], timeout=900)
+
+    def people(tiles: bool) -> int:
+        jobs.wait(jobs.submit("analyze", {"evidence_id": eid, "options": {"tile_detection": tiles}}, evidence_id=eid), 900)
+        return db.row("SELECT COUNT(*) AS n FROM tracks WHERE evidence_id = ? AND cls = 'person'", (eid,))["n"]
+
+    without, with_tiles = people(False), people(True)
+    st = api.get(f"/api/evidence/{eid}").json()["analysis_info"]["analiz"]
+    assert st["goruntu"]["parcali_tarama"]["izgara"] == 2 and st["goruntu"]["parcali_tarama"]["kare"] > 0
+    assert with_tiles >= 3 and with_tiles > without, (without, with_tiles)

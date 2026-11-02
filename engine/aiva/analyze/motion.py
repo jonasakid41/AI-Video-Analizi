@@ -24,6 +24,7 @@ KINDS = {
     "isik": "ışık değişimi",
     "parazit": "yağmur/kar/parazit",
     "belirsiz": "tanımlanamayan hareket",
+    "yz": "yapay zekânın gördüğü (yerel analiz kaçırmış olabilir)",  # ön inceleme ile karşılaştırma
 }
 IGNORABLE = {"cevre", "isik", "parazit"}
 

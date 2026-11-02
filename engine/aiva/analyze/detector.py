@@ -121,6 +121,45 @@ class Detector:
                             float(max(0, x)), float(max(0, y)), float(min(W, x + bw)), float(min(H, y + bh))))
         return merge_vehicle_duplicates(dets)
 
+    def detect_tiled(self, img: np.ndarray, min_conf: float = 0.35, person_conf: float | None = None,
+                     grid: int = 2, overlap: float = 0.25, stats: dict | None = None) -> list[Det]:
+        """Tam kare + örtüşen grid×grid parça. Dedektör kareyi 640 px'e küçülttüğü için yüksek çözünürlükte
+        uzaktaki (özellikle hareketsiz: duran kişi, park etmiş araç) nesneler kayboluyordu; parçalarda
+        aynı nesne birkaç kat büyük görünür. Sonuçlar sınıf bazlı NMS ile birleşir.
+        stats verilirse {"tam": tam karedeki, "toplam": birleşmiş} sayıları yazılır."""
+        H, W = img.shape[:2]
+        dets = self.detect(img, min_conf, person_conf=person_conf)
+        n_full = len(dets)
+        tw = int(round(W / (grid - (grid - 1) * overlap)))
+        th = int(round(H / (grid - (grid - 1) * overlap)))
+        for r in range(grid):
+            for c in range(grid):
+                x0 = min(W - tw, int(round(c * tw * (1 - overlap))))
+                y0 = min(H - th, int(round(r * th * (1 - overlap))))
+                for d in self.detect(img[y0:y0 + th, x0:x0 + tw], min_conf, person_conf=person_conf):
+                    # Parçanın iç kenarında kesilmiş nesne yarımdır; onu tam kare ya da komşu parça yakalar
+                    if ((d.x1 <= 2 and x0 > 0) or (d.x2 >= tw - 2 and x0 + tw < W)
+                            or (d.y1 <= 2 and y0 > 0) or (d.y2 >= th - 2 and y0 + th < H)):
+                        continue
+                    dets.append(Det(d.cls, d.conf, d.x1 + x0, d.y1 + y0, d.x2 + x0, d.y2 + y0))
+        out = merge_vehicle_duplicates(nms(dets))
+        if stats is not None:
+            stats.update(tam=n_full, toplam=len(out))
+        return out
+
+
+def tile_grid(width: float) -> int:
+    """Parçalı tarama ızgarası: 1080p'de 2×2, 1440p ve üstünde 3×3; daha küçük karelerde gerek yok (0)."""
+    return 3 if width >= 2500 else 2 if width >= 1600 else 0
+
+
+def nms(dets: list[Det], thr: float = 0.5) -> list[Det]:
+    if len(dets) < 2:
+        return dets
+    boxes = [[d.x1, d.y1, d.w, d.h] for d in dets]
+    keep = cv2.dnn.NMSBoxesBatched(boxes, [d.conf for d in dets], [COCO.index(d.cls) for d in dets], 0.0, thr)
+    return [dets[int(i)] for i in np.array(keep).reshape(-1)]
+
 
 def _iou(a: Det, b: Det) -> float:
     ix = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))

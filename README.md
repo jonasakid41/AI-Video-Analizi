@@ -19,7 +19,8 @@ Kamera (CCTV/DVR) kayıtlarını bilgisayarda inceleyen, ücretsiz ve açık kay
   - **Yapay zekâ videonun tamamını görür:** Yüklemeden sonra ön inceleme yapılır ve zaman damgalı notlar çıkar. Sorularda önce notlar, gerekirse kare ızgaralarıyla bütün kayıt taranır; bulunan anlar tam çözünürlükte doğrulanır.
   - **Abonelikle kullanım:** OpenRouter yerine bilgisayarda kurulu Claude Code, OpenAI Codex CLI ya da Gemini CLI seçilebilir. Bu durumda ücreti kullanıcının aboneliği karşılar (Codex ve Gemini deneysel).
 - **Zor kayıtlar:**
-  - Geniş açılı kameralarda uzaktaki küçük kişiler, hareket bölgesi yakınlaştırılarak yeniden aranır.
+  - Geniş açılı kameralarda uzaktaki küçük kişiler, hareket bölgesi yakınlaştırılarak yeniden aranır. 1080p ve üstünde kare parçalara bölünerek de taranır; duran kişiler ve park etmiş araçlar da bulunur.
+  - Kopuk izler birleştirilir. Yapay zekânın gördüğü ama yerel analizin kaçırdığı anlar zaman çizelgesinde işaretlenir.
   - Gece/IR (siyah-beyaz) kayıtlarda renk yerine ton kaydedilir ve renk koşulu adayları elemez.
   - Karanlık karelerde tespitten önce kontrast artırılır.
 - **Model karşılaştırma:** Soru sonuçlarını "doğru / yanlış" diye işaretleyip aynı adayları birden çok modele doğrulatabilirsiniz. Her model için isabet, duyarlılık, maliyet ve süre tablosu çıkar.

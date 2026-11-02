@@ -92,6 +92,7 @@ export const KIND_STYLE: Record<string, { color: string; name: string }> = {
   cevre: { color: "#6b9e78", name: "ağaç/bitki/gölge" },
   isik: { color: "#d4a514", name: "ışık değişimi" },
   parazit: { color: "#64748b", name: "yağmur/parazit" },
+  yz: { color: "#a78bfa", name: "yapay zekâ gördü" }, // yerel analizin kaçırmış olabileceği an
 };
 export const IGNORABLE_KINDS = ["cevre", "isik", "parazit"];
 

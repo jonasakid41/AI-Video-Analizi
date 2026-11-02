@@ -17,11 +17,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from . import db, events, evidence, history, jobs, paths, settings
 from .analyze import clip, colors, faces, lowlight, motion, plates, runtime
-from .analyze.detector import CLASSES_TR, MOTOR_VEHICLES, Det, Detector, _iou
+from .analyze.detector import CLASSES_TR, MOTOR_VEHICLES, Det, Detector, _iou, tile_grid
 from .analyze.tracker import Tracker
 from .media import frames
 from .results import color_text
@@ -30,8 +31,10 @@ from .util import dumps, imwrite, loads, vec_to_blob
 FRAME_EMB_EVERY = 2.0
 SPARSE_FPS = 0.1
 PERSON_CONF = 0.28   # kişiler için tespit eşiği (genel eşikten düşük; tek karelik izler sonradan elenir)
-ZOOM_MAX = 2         # kare başına en fazla bu kadar hareket bölgesi büyütülerek yeniden taranır
+ZOOM_MAX = 4         # kare başına en fazla bu kadar hareket bölgesi büyütülerek yeniden taranır
 ENHANCE_LOW = True   # karanlık/düşük kontrastlı karelerde tespit öncesi CLAHE
+TILE_EVERY = 2.0     # yüksek çözünürlükte küçük nesne yokken 2 sn'de bir kare parçalı taranır
+TILE_HOT = 5.0       # parçalı tarama tam karenin göremediğini bulunca bu kadar sn her kare parçalı taranır
 
 
 @dataclass
@@ -141,6 +144,84 @@ def _zoom_detect(detector: Detector, img: np.ndarray, sample: motion.Sample | No
             if all(_iou(d2, o) < 0.4 for o in dets + extra):
                 extra.append(d2)
     return extra
+
+
+RELINK_GAP = 4.0  # sn: bu kadar kısa kesintiden sonra açılan iz aynı nesne olabilir
+
+
+def _appearance(crop: np.ndarray | None) -> np.ndarray | None:
+    if crop is None or crop.size == 0:
+        return None
+    hsv = cv2.cvtColor(cv2.resize(crop, (32, 64), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2HSV)
+    h = cv2.calcHist([hsv], [0, 1, 2], None, [12, 4, 4], [0, 180, 0, 256, 0, 256])
+    return cv2.normalize(h, h).flatten()
+
+
+def _relink(tracks: list, tdata: dict) -> dict[int, int]:
+    """Kopuk izleri birleştirir: kişi bir direğin ya da başka birinin arkasından çıkınca takip yeni iz açıyordu
+    (kişi sayısı şişiyor, hareketi bölünüyordu). Kısa bir aradan sonra, beklenen konumda başlayan, boyutu ve
+    renk dağılımı benzeyen aynı sınıftan iz öncekine bağlanır. Dönüş: birleşen iz → hedef iz."""
+    groups = {c: ("arac" if c in MOTOR_VEHICLES else c) for c in {tr.label for tr in tracks}}
+    app = {tr.id: _appearance(tdata[tr.id].best_crop) for tr in tracks}
+    order = sorted(tracks, key=lambda tr: tr.t0)
+    by_end = sorted(tracks, key=lambda tr: tr.last_t)
+    ends = [tr.last_t for tr in by_end]
+    root: dict[int, int] = {}
+    taken: set[int] = set()
+    for b in order:
+        pb = tdata[b.id].path
+        if not pb:
+            continue
+        best, best_s = None, 0.45
+        # Yalnızca b başlamadan önceki RELINK_GAP saniye içinde biten izler aday
+        lo, hi = bisect.bisect_left(ends, b.t0 - RELINK_GAP), bisect.bisect_left(ends, b.t0)
+        for a in by_end[lo:hi]:
+            if a.t0 >= b.t0 or a.id in taken or groups[a.label] != groups[b.label] or a.id == b.id:
+                continue
+            gap = b.t0 - a.last_t
+            pa = tdata[a.id].path
+            if not 0 < gap <= RELINK_GAP or not pa:
+                continue
+            (t1, x1, y1, w1, h1), (t2, x2, y2, w2, h2) = pa[max(0, len(pa) - 3)], pa[-1]
+            dt = max(1e-3, t2 - t1)
+            vx, vy = ((x2 - x1) / dt, (y2 - y1) / dt) if len(pa) > 1 else (0.0, 0.0)
+            _tb, xb, yb, wb, hb = pb[0]
+            cx, cy = x2 + w2 / 2 + vx * gap, y2 + h2 / 2 + vy * gap
+            dist = ((cx - (xb + wb / 2)) ** 2 + (cy - (yb + hb / 2)) ** 2) ** 0.5 / max(w2, h2, 1e-3)
+            ratio = min(w2 * h2, wb * hb) / max(w2 * h2, wb * hb, 1e-9)
+            if dist > 1.5 + 0.5 * gap or ratio < 0.35:
+                continue
+            ha, hb_ = app.get(a.id), app.get(b.id)
+            sim = float(cv2.compareHist(ha, hb_, cv2.HISTCMP_CORREL)) if ha is not None and hb_ is not None else 0.5
+            s = sim - 0.15 * dist - 0.05 * gap
+            if s > best_s:
+                best, best_s = a, s
+        if best is not None:
+            taken.add(best.id)
+            root[b.id] = root.get(best.id, best.id)
+    return root
+
+
+def _merge_tracks(eid: int, tracks: list, tdata: dict, root: dict[int, int]) -> list:
+    by_id = {tr.id: tr for tr in tracks}
+    for bid, aid in sorted(root.items(), key=lambda kv: by_id[kv[0]].t0):
+        a, b = by_id[aid], by_id[bid]
+        ta, tb = tdata[aid], tdata[bid]
+        a.t0, a.last_t = min(a.t0, b.t0), max(a.last_t, b.last_t)
+        a.hits += b.hits
+        a.best_conf = max(a.best_conf, b.best_conf)
+        for k, v in b.cls_votes.items():
+            a.cls_votes[k] = a.cls_votes.get(k, 0.0) + v
+        ta.path = sorted(ta.path + tb.path)
+        ta.faces += tb.faces
+        ta.plate_reads += tb.plate_reads
+        if tb.best_score > ta.best_score:
+            ta.best_score, ta.best_crop, ta.best_t, ta.gray = tb.best_score, tb.best_crop, tb.best_t, tb.gray
+    with db.tx() as c:
+        for bid, aid in root.items():
+            for table in ("detections", "faces", "plates"):
+                c.execute(f"UPDATE {table} SET track_id = ? WHERE evidence_id = ? AND track_id = ?", (-aid, eid, -bid))
+    return [tr for tr in tracks if tr.id not in root]
 
 
 def _event_box(samples: list[motion.Sample], kinds: list[str | None], kind: str, a: float, b: float):
@@ -256,6 +337,13 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     done = 0.0
     n_frames = 0
     n_zoom = 0
+    n_tiled = 0
+    grid = tile_grid(W) if cfg.get("tile_detection", True) else 0
+    last_tiled = -1e9
+    tile_hot_until = -1e9
+    # Ekran kartı yoksa parçalı tarama işlemcide çok yavaş: yalnızca seyrek ve aralıklı yapılır
+    on_cpu = (runtime.active_provider(det_name) or "CPU").startswith("CPU")
+    tile_every, tile_hot = (8.0, 0.0) if on_cpu else (TILE_EVERY, TILE_HOT)
     n_enhanced = 0
 
     def flush_embeddings() -> None:
@@ -289,11 +377,22 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
             n_enhanced += low
             conf = float(cfg["min_conf"])
             with jobs.gpu_lock:
-                dets = detector.detect(det_img, conf, person_conf=min(conf, PERSON_CONF))
-                if kind == "aktif":
-                    extra = _zoom_detect(detector, det_img, sample_near(t), dets, conf)
-                    n_zoom += len(extra)
-                    dets += extra
+                if grid and (kind == "seyrek" or t < tile_hot_until or t - last_tiled >= tile_every):
+                    # Parçalı tarama: uzaktaki ve hareketsiz küçük nesneler. Tam karenin göremediği bir şey
+                    # bulursa sonraki TILE_HOT saniye her kare parçalı taranır (küçük nesnenin izi kopmasın)
+                    tst: dict = {}
+                    dets = detector.detect_tiled(det_img, conf, person_conf=min(conf, PERSON_CONF), grid=grid,
+                                                 stats=tst)
+                    if tst["toplam"] > tst["tam"]:
+                        tile_hot_until = t + tile_hot
+                    last_tiled = t
+                    n_tiled += 1
+                else:
+                    dets = detector.detect(det_img, conf, person_conf=min(conf, PERSON_CONF))
+                    if kind == "aktif":
+                        extra = _zoom_detect(detector, det_img, sample_near(t), dets, conf)
+                        n_zoom += len(extra)
+                        dets += extra
             for d, tid in tracker.update(t, dets):
                 td = tdata[tid]
                 nx, ny, nw, nh = d.x1 / W, d.y1 / H, d.w / W, d.h / H
@@ -345,6 +444,11 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
     ctx.progress(0.92, "Sonuçlar özetleniyor")
     t_c = time.monotonic()
     finished = tracker.close()
+    root = _relink(finished, tdata)
+    if root:
+        finished = _merge_tracks(eid, finished, tdata, root)
+        face_rows[:] = [(r[0], -root.get(-r[1], -r[1]), *r[2:]) for r in face_rows]
+        plate_rows[:] = [(r[0], -root.get(-r[1], -r[1]), *r[2:]) for r in plate_rows]
     kept, dropped = [], []
     for tr in finished:
         (kept if (tr.hits >= 2 or tr.best_conf >= 0.5) else dropped).append(tr)
@@ -406,6 +510,9 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
             c.executemany("UPDATE faces SET cluster = ? WHERE id = ?", [(lab, r["id"]) for lab, r in zip(labels, frows)])
     # Hareketin türü (kişi/araç mı, ağaç/gölge/ışık/parazit mi) ve olay listesi
     motion_summary = _motion_events(eid, msamples, float(cfg["motion_threshold"]), scan_fps, use_keys, ki)
+    if db.row("SELECT 1 FROM ai_notes WHERE evidence_id = ? LIMIT 1", (eid,)):
+        from .ai import scan as scanmod
+        scanmod.flag_misses(eid)  # yapay zekânın gördüğü ama bu analizin kaçırdığı anlar
     timings["ozet"] = round(time.monotonic() - t_c, 2)
     timings["toplam"] = round(time.monotonic() - t_all, 2)
 
@@ -424,7 +531,9 @@ def _analyze(ctx: jobs.JobContext, params: dict) -> dict:
         "kisi_kumesi": len(db.rows("SELECT DISTINCT cluster FROM faces WHERE evidence_id = ?", (eid,))),
         "plakalar": [p["plate"] for p in plates_found],
         "hareket_ozeti": motion_summary,
-        "goruntu": {**picture, "iyilestirilen_kare": n_enhanced, "yakinlastirma_tespiti": n_zoom},
+        "goruntu": {**picture, "iyilestirilen_kare": n_enhanced, "yakinlastirma_tespiti": n_zoom,
+                    "parcali_tarama": {"izgara": grid, "kare": n_tiled}},
+        "birlesen_iz": len(root),
         "yuz_tanima": use_faces, "plaka_okuma": use_plates, "gorsel_arama": use_clip,
     }
     info["analiz"] = stats

@@ -246,20 +246,32 @@ def build_tree_video(path: Path, seconds: float = 20.0, fps: int = 10) -> Path:
 
 
 def build_from_real(path: Path, src: Path, seconds: float = 20.0, scale: float = 1.0,
-                    canvas: tuple[int, int] | None = None, gray: bool = False, dark: float = 1.0) -> Path:
+                    canvas: tuple[int, int] | None = None, gray: bool = False, dark: float = 1.0,
+                    freeze: float | None = None) -> Path:
     """Gerçek bir videodan türetilmiş test kaydı.
     scale + canvas: görüntü küçültülüp büyük bir tuvalin köşesine konur (geniş açılı kamerada uzaktaki kişiler);
-    gray: siyah-beyaz (gece/IR) kayıt; dark: parlaklık çarpanı (<1 karanlık)."""
+    gray: siyah-beyaz (gece/IR) kayıt; dark: parlaklık çarpanı (<1 karanlık);
+    freeze: bu saniyedeki kare `seconds` boyunca tekrarlanır (hareketsiz sahne: duran kişiler, park etmiş araçlar)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    def source(ic, vs, fps):
+        for fr in ic.decode(vs):
+            t = float(fr.time or 0)
+            if freeze is None:
+                if t > seconds:
+                    return
+                yield t, fr.to_ndarray(format="bgr24")
+            elif t >= freeze:
+                img = fr.to_ndarray(format="bgr24")
+                for i in range(int(seconds * fps)):
+                    yield i / fps, img
+                return
+
     with av.open(str(src)) as ic, av.open(str(path), "w", format="mp4") as out:
         vs = ic.streams.video[0]
         fps = float(vs.average_rate or 10)
         st = None
-        for fr in ic.decode(vs):
-            t = float(fr.time or 0)
-            if t > seconds:
-                break
-            img = fr.to_ndarray(format="bgr24")
+        for t, img in source(ic, vs, fps):
             if scale != 1.0:
                 img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             if canvas:
