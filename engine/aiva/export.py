@@ -12,6 +12,7 @@ import numpy as np
 
 from . import evidence, history, jobs, paths
 from .media import encoders, frames
+from .media.convert import copy_stream
 from .util import dumps, imwrite
 
 
@@ -87,7 +88,7 @@ def export_clip_job(ctx: jobs.JobContext, params: dict) -> dict:
     with av.open(str(src)) as ic, av.open(str(orig), "w", format="matroska") as out:
         vin = ic.streams.video[0]
         ins = [vin] + list(ic.streams.audio[:1])
-        omap = {s.index: out.add_stream_from_template(s) for s in ins}
+        omap = {s.index: copy_stream(out, s) for s in ins}
         ic.seek(int(t0 / vin.time_base), stream=vin, backward=True, any_frame=False)
         started = False
         for pkt in ic.demux(*ins):

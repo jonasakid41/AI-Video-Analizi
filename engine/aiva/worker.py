@@ -11,6 +11,7 @@ Aynı süreçte olsa bu motoru düşürür ya da iptal edilemez. Burada:
 from __future__ import annotations
 
 import importlib
+import logging
 import multiprocessing as mp
 import os
 import queue
@@ -20,6 +21,8 @@ from typing import Any
 
 from . import jobs
 
+log = logging.getLogger(__name__)
+
 
 class WorkerCrashed(RuntimeError):
     pass
@@ -27,6 +30,16 @@ class WorkerCrashed(RuntimeError):
 
 class WorkerStalled(RuntimeError):
     pass
+
+
+class WorkerError(RuntimeError):
+    """Çocuk süreçteki işlem bir istisnayla bitti. Mesaj kullanıcıya gösterilir; tür ve
+    traceback teşhis paketi ve günlük içindir (önceden yalnızca "ValueError: …" kalıyordu)."""
+
+    def __init__(self, message: str, kind: str = "", trace: str = ""):
+        super().__init__(message)
+        self.kind = kind
+        self.trace = trace
 
 
 def _child(target: str, kwargs: dict, q, parent_pid: int) -> None:
@@ -45,7 +58,7 @@ def _child(target: str, kwargs: dict, q, parent_pid: int) -> None:
     try:
         q.put(("ok", fn(**kwargs, progress=progress)))
     except BaseException as e:  # noqa: BLE001 — hata ebeveyne iletilir
-        q.put(("err", f"{e.__class__.__name__}: {e}", traceback.format_exc()))
+        q.put(("err", str(e) or e.__class__.__name__, traceback.format_exc(), e.__class__.__name__))
 
 
 def run(target: str, kwargs: dict, ctx: jobs.JobContext | None = None, *, on_progress=None,
@@ -84,7 +97,8 @@ def run(target: str, kwargs: dict, ctx: jobs.JobContext | None = None, *, on_pro
             elif kind == "ok":
                 return msg[1]
             else:
-                raise RuntimeError(msg[1])
+                log.error("%s işlemi hata verdi:\n%s", target, msg[2])
+                raise WorkerError(msg[1], msg[3] if len(msg) > 3 else "", msg[2])
     finally:
         if p.is_alive():
             p.terminate()

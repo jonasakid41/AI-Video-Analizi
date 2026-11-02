@@ -15,6 +15,43 @@ def test_crash_in_child_does_not_kill_engine():
         worker.run("aiva.media.convert:_test_crash", {})
 
 
+def test_child_exception_keeps_type_and_traceback():
+    # Önceden kullanıcı yalnızca "ValueError: …" görüyordu; tür ve traceback teşhis paketine gider
+    with pytest.raises(worker.WorkerError) as ei:
+        worker.run("aiva.media.convert:_test_value_error", {})
+    e = ei.value
+    assert str(e) == "libornek" and e.kind == "UnknownCodecError"
+    assert "_test_value_error" in e.trace and "Traceback" in e.trace
+
+
+def test_av1_video_is_converted(tmp_path):
+    """AV1'de çözücünün adı (libdav1d) kodlayıcı olarak bulunamıyordu: kayıpsız kopya ValueError veriyordu."""
+    import av
+    from fractions import Fraction
+
+    import numpy as np
+    from aiva.media import convert, opener
+    from aiva.media.sniff import sniff
+    if "libsvtav1" not in av.codecs_available:
+        pytest.skip("AV1 kodlayıcı yok")
+    src = tmp_path / "av1.mkv"
+    with av.open(str(src), "w", format="matroska") as out:
+        st = out.add_stream("libsvtav1", rate=Fraction(10))
+        st.width, st.height, st.pix_fmt, st.options = 640, 360, "yuv420p", {"preset": "12"}
+        for i in range(10):
+            img = np.full((360, 640, 3), (i * 20) % 255, np.uint8)
+            for pkt in st.encode(av.VideoFrame.from_ndarray(img, format="bgr24")):
+                out.mux(pkt)
+        for pkt in st.encode(None):
+            out.mux(pkt)
+    spec, _ = opener.choose(src, sniff(src))
+    stats = convert.remux_evidence(src, spec, tmp_path / "evidence")
+    assert stats["packets"] >= 9 and stats["video_codec"] == "libdav1d"
+    ev = opener.probe(tmp_path / "evidence.mkv", opener.OpenSpec("evidence"))
+    info = convert.build_proxy(tmp_path / "evidence.mkv", tmp_path / "proxy.mp4", opener.video_stream_info(ev))
+    assert info["mode"] == "kodlama" and (tmp_path / "proxy.mp4").stat().st_size > 0
+
+
 def test_hang_is_detected_by_idle_timeout():
     t = time.monotonic()
     with pytest.raises(worker.WorkerStalled):

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 import av
+from av.codec.codec import UnknownCodecError
 
 from . import encoders
 from .frames import decoding
@@ -37,6 +38,16 @@ EVIDENCE_CONTAINERS = [("matroska", ".mkv"), ("nut", ".nut")]
 
 class UnsupportedInContainer(ValueError):
     pass
+
+
+def copy_stream(out: av.container.OutputContainer, s: av.stream.Stream) -> av.stream.Stream:
+    """Akışı yeniden kodlamadan kopyalamak için çıkış akışı. PyAV şablondaki çözücünün adını kodlayıcı
+    olarak arar; adlar farklıysa (ör. AV1 → "libdav1d") UnknownCodecError (ValueError) verir ve
+    yüksek çözünürlüklü AV1 videolar "dönüştürülemedi" oluyordu. O durumda kodek bilgisi doğrudan kopyalanır."""
+    try:
+        return out.add_stream_from_template(s)
+    except UnknownCodecError:
+        return out.add_stream_from_template(s, opaque=True)
 
 
 def remux_evidence(src: Path, spec: OpenSpec, dst_base: Path, progress: Progress = _noop) -> dict:
@@ -120,7 +131,7 @@ def _remux_into(src: Path, spec: OpenSpec, dst: Path, fmt: str, progress: Progre
             omap = {}
             for s in ins:
                 try:
-                    omap[s.index] = out.add_stream_from_template(s)
+                    omap[s.index] = copy_stream(out, s)
                 except (ValueError, av.error.FFmpegError) as e:
                     if s is vin:
                         raise UnsupportedInContainer(str(e)) from e
@@ -220,10 +231,10 @@ def _remux_proxy(src: Path, dst: Path, progress: Progress) -> dict:
     with av.open(str(src)) as ic, av.open(str(dst), "w", format="mp4", options={"movflags": "+faststart"}) as out:
         vin = ic.streams.video[0]
         ins = [vin]
-        omap = {vin.index: out.add_stream_from_template(vin)}
+        omap = {vin.index: copy_stream(out, vin)}
         a = ic.streams.audio[0] if ic.streams.audio else None
         if a is not None and a.codec_context.name in BROWSER_AUDIO:
-            omap[a.index] = out.add_stream_from_template(a)
+            omap[a.index] = copy_stream(out, a)
             ins.append(a)
         dur = float(ic.duration / av.time_base) if ic.duration else None
         beat = time.monotonic()
@@ -327,6 +338,12 @@ def _test_crash(progress: Progress) -> None:
     import os
     progress(0.1, None)
     os._exit(3)
+
+
+def _test_value_error(progress: Progress) -> None:
+    """Yalnızca testler için: istisnayla biten bir işlem (ör. kodek desteklenmiyor)."""
+    progress(0.1, None)
+    raise UnknownCodecError("libornek")
 
 
 def _test_hang(progress: Progress) -> None:

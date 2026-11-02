@@ -277,8 +277,11 @@ def _ingest(ctx: jobs.JobContext, params: dict) -> dict:
         pinfo = worker.run("aiva.media.convert:proxy_task",
                            {"src": str(ev_path), "dst": str(proxy_file(ev)), "vinfo": v}, ctx,
                            on_progress=lambda val, m=None: ctx.progress(0.45 + 0.45 * val, "Çalışma kopyası hazırlanıyor"))
-    except (worker.WorkerCrashed, worker.WorkerStalled) as e:
-        _set_status(eid, "hata", f"Çalışma kopyası oluşturulamadı: {e}")
+    except (worker.WorkerCrashed, worker.WorkerStalled, worker.WorkerError) as e:
+        if isinstance(e, worker.WorkerError):
+            (d / "teshis.txt").write_text(_diagnostics(original, s, attempts) + f"\n\nÇalışma kopyası hatası ({e.kind}): "
+                                          f"{e}\n{e.trace}", encoding="utf-8")
+        _set_status(eid, "hata", f"Çalışma kopyası oluşturulamadı: {e}. Teşhis paketi Bilgi sekmesinde.")
         raise RuntimeError(f"Çalışma kopyası oluşturulamadı: {e}. Kayıpsız kopya hazır; yeniden dönüştürmeyi deneyin.") from e
 
     ctx.progress(0.92, "Önizleme şeridi")
@@ -319,19 +322,25 @@ def _isolated_remux(ctx: jobs.JobContext, original: Path, spec, d: Path, s, atte
         tries.append(opener.OpenSpec(spec.name + " + hata toleransı", spec.format, spec.offset,
                                      {**spec.options, **opener.TOLERANT}, spec.raw, spec.fps))
     problems: list[str] = []
+    last: Exception | None = None
     for i, sp in enumerate(tries):
         label = "Kayıpsız kopya oluşturuluyor" + (" (hataya dayanıklı mod)" if i else "")
         try:
             return worker.run("aiva.media.convert:remux_task",
                               {"src": str(original), "spec": sp.to_dict(), "dst_base": str(d / "evidence")}, ctx,
                               on_progress=lambda v, m=None, label=label: ctx.progress(0.12 + 0.33 * v, m or label))
-        except (worker.WorkerCrashed, worker.WorkerStalled) as e:
+        except (worker.WorkerCrashed, worker.WorkerStalled, worker.WorkerError) as e:
             log.warning("Kayıpsız kopya başarısız (iş %s, %s): %s", ctx.job_id, sp.name, e)
-            problems.append(f"{sp.name}: {e}")
+            detail = f" ({e.kind})\n{e.trace}" if isinstance(e, worker.WorkerError) else ""
+            problems.append(f"{sp.name}: {e}{detail}")
+            last = e
             for ext in (".mkv", ".nut"):
                 (d / "evidence").with_suffix(ext).unlink(missing_ok=True)
     (d / "teshis.txt").write_text(_diagnostics(original, s, attempts) + "\n\nKayıpsız kopya denemeleri:\n" +
                                   "\n".join(f"  - {p}" for p in problems), encoding="utf-8")
+    if isinstance(last, worker.WorkerError):
+        msg = str(last) if str(last).startswith("Kayıpsız kopya") else f"Kayıpsız kopya oluşturulamadı: {last}"
+        raise RuntimeError(f"{msg}. Teşhis paketi Bilgi sekmesinde.")
     raise RuntimeError("Dosya açıldı ama baştan sona kopyalanamadı (çözücü çöktü ya da takıldı). "
                        "Dosyanın bir bölümü bozuk olabilir. Teşhis paketi Bilgi sekmesinde.")
 

@@ -1,5 +1,14 @@
 # Sürüm geçmişi
 
+## 0.1.4 — 2 Kasım 2026
+
+Yüksek çözünürlüklü bazı videoların "ValueError" ile dönüştürülememesi düzeltildi.
+
+- **AV1 videolar:** Kayıpsız kopya adımında AV1 kodlu videolar (YouTube'dan indirilen ve yeni kameralardan gelen 4K kayıtlarda sık) "ValueError: Kayıpsız kopya oluşturulamadı: libdav1d" hatası veriyordu. Video kodlayıcının adı bulunamadığında kodek bilgisi artık doğrudan kopyalanıyor.
+- **Denenen biçimler:** 4K/8K H.264 ve HEVC, 10 bit HEVC, DCI 4K, 5K ultra geniş, dikey 4K, 60 fps B-frame, 4:2:2, ProRes, VP9, MJPEG, AV1 ve 4,3 GB'lık bir dosya dönüştürüldü; 8K, dikey 4K, AV1 ve 10 bit HEVC videolar analiz edildi.
+- **Daha anlaşılır hata ve teşhis:**
+  - Dönüştürme ayrı süreçte hata verirse kullanıcı "ValueError" yerine anlaşılır bir mesaj görüyor.
+  - Hatanın türü ve tam ayrıntısı teşhis paketine (Bilgi sekmesi) ve motor günlüğüne yazılıyor.
 ## 0.1.3 — 2 Kasım 2026
 
 Abonelikle yapay zekâ kullanımı, uzaktaki kişilerin bulunması ve gece/siyah-beyaz kayıtlar.
